@@ -7,6 +7,7 @@ import { go } from '../router.js';
 import { encryptId, randomCode } from '../crypto.js';
 import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState } from './common.js';
 import * as ui from '../ui.js';
+import { wardRoomFields } from '../actions.js';
 
 // ---- 一覧 ----
 export const erListScreen = {
@@ -62,7 +63,7 @@ export const erPatientScreen = {
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('検査・説明')}
       <div class="tlist">${erTasks.map((t) => taskRow(p, t)).join('')}</div>
-      <div class="muted small">タップで次の段階へ ・ 長押しで「なし／1つ戻す／名前を変える／削除」</div>
+      <div class="muted small">タップすると、状態を選んだり名前を変えたりできます</div>
       <div class="grid2"><button class="btn2" data-act="addSame" data-pid="${p.id}">＋ 同じ種類を追加</button><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスクを追加</button></div>
       ${sec('検査値')}
       ${labGrid(p)}
@@ -91,7 +92,7 @@ export const registerScreen = {
       <div class="field"><label class="lbl" for="r-nick">あだ名</label><input id="r-nick" type="text" autocomplete="off" placeholder="本名を連想させない名前に"></div>
       <div class="field"><div class="lbl">年代</div><div class="seg wrap6" data-pick="age">${ages}</div></div>
       <div class="field"><div class="lbl">性別</div><div class="seg" data-pick="sex"><button data-act="pick" data-v="M">男性</button><button data-act="pick" data-v="F">女性</button></div></div>
-      <div class="field"><label class="lbl" for="r-bed">ベッド番号</label><input id="r-bed" type="text" autocomplete="off" placeholder="例：ER-3、5東-12"></div>
+      <div class="field"><div class="lbl">病棟・病室（救急外来は ER ＋ブース番号）</div>${wardRoomFields('r', to === 'er' ? 'ER' : '', '')}</div>
       <div class="field"><label class="lbl" for="r-dx">病名</label><input id="r-dx" type="text" autocomplete="off">
         ${sug.length ? `<div class="chips-row">${sug.map((s) => `<button class="pill" data-act="fillDx" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}</div>
       <div class="field"><div class="lbl">CODE</div><div class="seg" data-pick="code">${codes}</div></div>
@@ -101,8 +102,13 @@ export const registerScreen = {
   },
   mount() {
     $('.seg[data-pick="to"]').addEventListener('picked', (e) => {
-      $('#admit-field').classList.toggle('hidden', e.detail.value !== 'in');
+      const toIn = e.detail.value === 'in';
+      $('#admit-field').classList.toggle('hidden', !toIn);
+      const ward = $('#r-ward');
+      if (toIn && ward.value === 'ER') ward.value = '';
+      if (!toIn && !ward.value) ward.value = 'ER';
     });
+    $('#r-room').addEventListener('input', (e) => { e.target.value = e.target.value.normalize('NFKC').replace(/\D/g, '').slice(0, 4); });
     const onlyDigits = (e) => { e.target.value = e.target.value.normalize('NFKC').replace(/\D/g, '').slice(0, 8); };
     $('#r-id1').addEventListener('input', onlyDigits);
     $('#r-id2').addEventListener('input', onlyDigits);
@@ -134,7 +140,8 @@ export const registerScreen = {
           nickname,
           ageBand,
           sex,
-          bed: $('#r-bed').value.trim(),
+          ward: $('#r-ward').value,
+          room: $('#r-room').value.trim(),
           disease: $('#r-dx').value.trim(),
           codeStatus: pick('code') || 'unknown',
           location: to === 'in' ? 'inpatient' : 'er',

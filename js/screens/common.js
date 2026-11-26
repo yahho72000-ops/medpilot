@@ -58,7 +58,7 @@ export function taskRow(p, t, { readonly = false } = {}) {
   const s = M.stateInfo(t);
   const extra = t.kind === 'free' ? '<span class="muted small">　自分で追加</span>' : '';
   const due = t.dueDate ? `<span class="muted small">　${mdw(t.dueDate)}</span>` : '';
-  const attrs = readonly ? '' : `data-act="tapTask" data-lp="lpTask" data-pid="${p.id}" data-tid="${t.id}"`;
+  const attrs = readonly ? '' : `data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}"`;
   return `<div class="trow" ${attrs}><div class="tlabel">${esc(t.label)}${due}${extra}</div><div class="tstate">${chip(s.text, s.tone)}${bars(t)}</div></div>`;
 }
 
@@ -95,10 +95,10 @@ export function devicesBlock(p, { readonly = false } = {}) {
     .map((d) => {
       const day = M.deviceDay(d);
       if (d.removedDate) {
-        return `<div class="kv muted" ${readonly ? '' : `data-lp="lpDevice" data-pid="${p.id}" data-did="${d.id}"`}><span>${esc(d.type)}</span><span>${md(d.insertedDate)}〜${md(d.removedDate)}（${day}日間）</span></div>`;
+        return `<div class="kv muted" ${readonly ? '' : `data-act="lpDevice" data-pid="${p.id}" data-did="${d.id}"`}><span>${esc(d.type)}</span><span>${md(d.insertedDate)}〜${md(d.removedDate)}（${day}日間）</span></div>`;
       }
       const warn = M.deviceWarn(d);
-      return `<div class="kv" ${readonly ? '' : `data-lp="lpDevice" data-pid="${p.id}" data-did="${d.id}"`}><span>${esc(d.type)}</span><span>${warn ? chip(`留置${day}日目`, 'r', 'bold') : `<span class="muted">留置${day}日目</span>`}${readonly ? '' : `<button class="mini" data-act="removeDevice" data-pid="${p.id}" data-did="${d.id}">抜去</button>`}</span></div>`;
+      return `<div class="kv" ${readonly ? '' : `data-act="lpDevice" data-pid="${p.id}" data-did="${d.id}"`}><span>${esc(d.type)}</span><span>${warn ? chip(`留置${day}日目`, 'r', 'bold') : `<span class="muted">留置${day}日目</span>`}${readonly ? '' : `<button class="mini" data-act="removeDevice" data-pid="${p.id}" data-did="${d.id}">抜去</button>`}</span></div>`;
     })
     .join('');
   return rows || '<div class="muted small">なし</div>';

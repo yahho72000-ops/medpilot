@@ -9,6 +9,12 @@ import { openPrivate, decryptId } from './crypto.js';
 import { historyOf } from './labs.js';
 
 const P = (ds) => findPatient(ds.pid);
+
+// 病棟（選択）＋病室（数字）の入力欄
+export function wardRoomFields(prefix, ward = '', room = '') {
+  const opts = ['<option value="">選ぶ</option>', ...M.WARDS.map((w) => `<option value="${w}" ${w === ward ? 'selected' : ''}>${w}</option>`)].join('');
+  return `<div class="ward-room"><select id="${prefix}-ward" aria-label="病棟">${opts}</select><input id="${prefix}-room" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" value="${esc(room)}" placeholder="病室（数字）" aria-label="病室" autocomplete="off"></div>`;
+}
 const T = (p, ds) => p && p.tasks.find((t) => t.id === ds.tid);
 
 function listScreenFor(p) {
@@ -63,7 +69,7 @@ export async function afterChange(p) {
     if (v !== 'go') return false;
     M.moveToInpatient(p);
     await savePatient(p);
-    ui.toast('入院患者に移しました');
+    ui.toast(p.ward === 'ER' || !p.ward ? '入院患者に移しました。「編集」から病棟と病室を入れてください' : '入院患者に移しました');
     go('inPatient', { id: p.id }, { replace: true });
     return true;
   }
@@ -144,47 +150,31 @@ export const patientActions = {
     if (p) openPatient(p);
   },
 
+  // タップすると選択肢が出て、状態を選ぶ
   async tapTask(ds) {
     const p = P(ds);
     const t = T(p, ds);
     if (!t) return;
-    const before = { state: t.state, doneAt: t.doneAt, ic: p.lastICDate };
-    const next = M.nextState(t);
-    if (next === t.state) {
-      ui.toast('長押しで「1つ戻す」などができます');
-      return;
-    }
-    M.setState(t, next);
-    if (t.kind === 'ic' && t.state === 'done') p.lastICDate = ymd();
-    await savePatient(p);
-    render();
-    if (M.progress(p)) {
-      await afterChange(p);
-      return;
-    }
-    ui.toast(`${t.label}：${M.stateInfo(t).text}`, async () => {
-      t.state = before.state;
-      t.doneAt = before.doneAt;
-      p.lastICDate = before.ic;
+    const states = M.stateChoices(t).map(([k, l]) => ({ v: `s:${k}`, label: l, tone: k === t.state ? 'btn' : 'btn2' }));
+    const more = [{ v: 'rename', label: '名前を変える', tone: 'btn3' }];
+    if (p.location !== 'er' || t.dueDate) more.push({ v: 'date', label: t.dueDate ? `日付を変える（${md(t.dueDate)}）` : '日付を付ける', tone: 'btn3' });
+    more.push({ v: 'delete', label: '削除する', tone: 'danger' });
+    const v = await ui.choose(t.label, `今：${M.stateInfo(t).text}`, [...states, ...more]);
+    if (!v) return;
+    if (v.startsWith('s:')) {
+      const s = v.slice(2);
+      if (s === t.state) return;
+      M.setState(t, s);
+      if (t.kind === 'ic' && s === 'done') p.lastICDate = ymd();
       await savePatient(p);
       render();
-    });
-  },
-
-  async lpTask(ds) {
-    const p = P(ds);
-    const t = T(p, ds);
-    if (!t) return;
-    const opts = [];
-    if (t.state !== 'todo') opts.push({ v: 'back', label: '1つ戻す' });
-    if (t.state !== 'none') opts.push({ v: 'none', label: '「なし」にする' });
-    opts.push({ v: 'rename', label: '名前を変える' });
-    if (p.location !== 'er' || t.dueDate) opts.push({ v: 'date', label: t.dueDate ? `日付を変える（${md(t.dueDate)}）` : '日付を付ける' });
-    opts.push({ v: 'delete', label: '削除する', tone: 'danger' });
-    const v = await ui.choose(t.label, `今：${M.stateInfo(t).text}`, opts);
-    if (!v) return;
-    if (v === 'back') M.setState(t, M.prevState(t));
-    if (v === 'none') M.setState(t, 'none');
+      if (M.progress(p)) {
+        await afterChange(p);
+        return;
+      }
+      ui.toast(`${t.label}：${M.stateInfo(t).text}`);
+      return;
+    }
     if (v === 'rename') {
       const name = await ui.promptText({ title: '名前を変える', value: t.label });
       if (!name) return;
@@ -202,7 +192,11 @@ export const patientActions = {
     }
     await savePatient(p);
     render();
-    if (v === 'none' || v === 'delete') await afterChange(p);
+    if (v === 'delete') await afterChange(p);
+  },
+
+  lpTask(ds) {
+    return patientActions.tapTask(ds);
   },
 
   async addSame(ds) {
@@ -270,7 +264,7 @@ export const patientActions = {
       <label class="lbl" for="e-nick">あだ名</label><input id="e-nick" type="text" value="${esc(p.nickname)}" autocomplete="off">
       <div class="lbl">年代</div><div class="seg wrap6" data-pick="age">${ages}</div>
       <div class="lbl">性別</div><div class="seg" data-pick="sex"><button class="${p.sex === 'M' ? 'on' : ''}" data-act="pick" data-v="M">男性</button><button class="${p.sex === 'F' ? 'on' : ''}" data-act="pick" data-v="F">女性</button></div>
-      <label class="lbl" for="e-bed">ベッド番号</label><input id="e-bed" type="text" value="${esc(p.bed)}" autocomplete="off">
+      <div class="lbl">病棟・病室</div>${wardRoomFields('e', p.ward || M.parseBed(p.bed).ward, p.room || M.parseBed(p.bed).room)}
       <label class="lbl" for="e-dx">病名</label><input id="e-dx" type="text" value="${esc(p.disease)}" autocomplete="off">
       ${p.admitDate ? `<label class="lbl" for="e-adm">入院日</label><input id="e-adm" type="date" value="${esc(p.admitDate)}">` : ''}
       <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="editOk">保存</button></div>
@@ -297,7 +291,9 @@ export const patientActions = {
     if (!nick) return;
     const age = $('.seg[data-pick="age"] .on');
     const sex = $('.seg[data-pick="sex"] .on');
-    const out = { nickname: nick, bed: val('#e-bed'), disease: val('#e-dx') };
+    const ward = $('#e-ward').value;
+    const room = $('#e-room').value.trim();
+    const out = { nickname: nick, ward, room, bed: M.bedLabel(ward, room), disease: val('#e-dx') };
     if (age) out.ageBand = age.dataset.v;
     if (sex) out.sex = sex.dataset.v;
     if ($('#e-adm') && $('#e-adm').value) out.admitDate = $('#e-adm').value;

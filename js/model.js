@@ -51,6 +51,26 @@ export const GROUP_TITLES = {
 };
 
 export const DEVICE_TYPES = ['CV', 'Aライン', '尿カテ', '胃管', 'ドレーン', '挿管チューブ'];
+
+// 病棟（選択肢）と病室（数字）
+export const WARDS = ['2E', '2W', '3E', '3W', '4E', '4W', '5E', '5W', '6E', '6W', '7W', 'ER'];
+export function bedLabel(ward, room) {
+  if (!ward) return room || '';
+  return room ? `${ward}-${room}` : ward;
+}
+export function parseBed(bed) {
+  const m = String(bed || '').normalize('NFKC').toUpperCase().match(/^(2E|2W|3E|3W|4E|4W|5E|5W|6E|6W|7W|ER)[-\s]?(\d*)$/);
+  return m ? { ward: m[1], room: m[2] } : { ward: '', room: '' };
+}
+
+// 今日の採血（4つの状態）
+export const BLOOD = {
+  unknown: { text: '未確認', short: '採血 未確認', tone: 'r' },
+  none: { text: 'なし', short: '採血 なし', tone: 'g' },
+  yes: { text: 'あり（確認未）', short: '採血 確認未', tone: 'a' },
+  done: { text: 'あり（確認済）', short: '採血 確認済', tone: 'g' },
+};
+export const bloodOpen = (v) => v === 'unknown' || v === 'yes';
 export const DEVICE_WARN_DAYS = 14;
 export const IC_WARN_DAYS = 7;
 
@@ -94,6 +114,21 @@ export function setState(t, s) {
 }
 
 export const isOpen = (t) => t.state !== 'done' && t.state !== 'none';
+
+// タップしたときに出す選択肢
+export function stateChoices(t) {
+  const consult = t.kind === 'consult';
+  if (t.steps === 3) {
+    return [
+      ['todo', '未'],
+      ['ordered', consult ? '依頼済（返事待ち）' : 'オーダー済（結果待ち）'],
+      ['resulted', consult ? '返事あり（確認待ち）' : '結果あり（確認待ち）'],
+      ['done', '確認済'],
+      ['none', 'なし'],
+    ];
+  }
+  return [['todo', '未'], ['done', '済'], ['none', 'なし']];
+}
 
 // 長い表示（患者ページ用）。tone: r=まだ, a=待ち, g=済・なし
 export function stateInfo(t) {
@@ -140,7 +175,9 @@ export function newPatient(fields, templates) {
     nickname: fields.nickname,
     ageBand: fields.ageBand,
     sex: fields.sex,
-    bed: fields.bed || '',
+    ward: fields.ward || '',
+    room: fields.room || '',
+    bed: bedLabel(fields.ward, fields.room) || fields.bed || '',
     disease: fields.disease || '',
     codeStatus: fields.codeStatus || 'unknown',
     location: inpatient ? 'inpatient' : 'er',
@@ -176,7 +213,7 @@ export function dailyGet(p, key = dayKey()) {
   const d = p.daily && p.daily[key];
   if (d) return d;
   const bloodToday = p.tasks.some((t) => t.dueDate === ymd() && /採血/.test(t.label) && t.state !== 'none');
-  return { visit: 'todo', blood: bloodToday ? 'yes' : 'none' };
+  return { visit: 'todo', blood: bloodToday ? 'yes' : 'unknown' };
 }
 
 export function dailySet(p, field, value, key = dayKey()) {
@@ -192,7 +229,7 @@ export function openCount(p) {
   if (p.location === 'inpatient') {
     const d = dailyGet(p);
     if (d.visit === 'todo') n++;
-    if (d.blood === 'yes') n++;
+    if (bloodOpen(d.blood)) n++;
   }
   return n;
 }
@@ -200,7 +237,10 @@ export function openCount(p) {
 // 一覧の「残り」チップの色：未があれば赤、待ちだけなら黄
 export function remainTone(p) {
   const open = openTasks(p);
-  if (p.location === 'inpatient' && dailyGet(p).visit === 'todo') return 'r';
+  if (p.location === 'inpatient') {
+    const d = dailyGet(p);
+    if (d.visit === 'todo' || d.blood === 'unknown') return 'r';
+  }
   if (open.some((t) => t.state === 'todo')) return 'r';
   return openCount(p) ? 'a' : 'g';
 }

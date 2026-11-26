@@ -11,7 +11,7 @@ function rowChips(p) {
   const out = [];
   const d = M.dailyGet(p);
   if (d.visit === 'todo') out.push(chip('回診 未', 'r'));
-  if (d.blood === 'yes') out.push(chip('採血 確認待ち', 'a'));
+  if (M.bloodOpen(d.blood)) out.push(chip(M.BLOOD[d.blood].short, M.BLOOD[d.blood].tone));
   for (const t of M.openTasks(p)) out.push(taskChip(t));
   if (M.icWarn(p)) out.push(chip(`家族IC ${M.icDays(p)}日前`, 'r', 'bold'));
   for (const dv of M.activeDevices(p).filter(M.deviceWarn)) out.push(chip(`${dv.type} ${M.deviceDay(dv)}日目`, 'r', 'bold'));
@@ -80,9 +80,10 @@ async function move(pid, dir) {
 function dailyRows(p) {
   const d = M.dailyGet(p);
   const visit = d.visit === 'done' ? chip('済', 'g') : chip('未', 'r');
-  const blood = d.blood === 'yes' ? chip('あり・確認待ち', 'a') : d.blood === 'done' ? chip('確認済', 'g') : chip('なし', 'g');
+  const b = M.BLOOD[d.blood] || M.BLOOD.unknown;
+  const blood = chip(b.text, b.tone);
   return `<div class="trow" data-act="tapDaily" data-f="visit" data-pid="${p.id}"><div class="tlabel">回診</div><div class="tstate">${visit}</div></div>
-    <div class="trow" data-act="tapDaily" data-f="blood" data-lp="lpBlood" data-pid="${p.id}"><div class="tlabel">今日の採血</div><div class="tstate">${blood}</div></div>`;
+    <div class="trow" data-act="tapDaily" data-f="blood" data-pid="${p.id}"><div class="tlabel">今日の採血</div><div class="tstate">${blood}</div></div>`;
 }
 
 export const inPatientScreen = {
@@ -99,12 +100,12 @@ export const inPatientScreen = {
     const icd = M.icDays(p);
     const icText = p.lastICDate ? `前回 ${mdw(p.lastICDate)}（${icd}日前）` : `まだ（入院から${icd}日）`;
     const problems = (p.problems || [])
-      .map((x, i) => `<div class="prob" data-lp="lpProblem" data-pid="${p.id}" data-i="${i}">#${i + 1}　${esc(x)}</div>`)
+      .map((x, i) => `<div class="prob" data-act="lpProblem" data-pid="${p.id}" data-i="${i}">#${i + 1}　${esc(x)}</div>`)
       .join('');
     const notes = (p.notes || [])
       .slice()
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.at - a.at))
-      .map((n) => `<div class="note" data-lp="lpNote" data-pid="${p.id}" data-nid="${n.id}"><span class="muted note-date">${md(n.date)}</span><span class="note-text">${esc(n.text)}</span></div>`)
+      .map((n) => `<div class="note" data-act="lpNote" data-pid="${p.id}" data-nid="${n.id}"><span class="muted note-date">${md(n.date)}</span><span class="note-text">${esc(n.text)}</span></div>`)
       .join('');
     const endingBox = p.ending
       ? `<div class="card ending"><div class="row-between"><div><span class="tag">${esc(M.endingLabel(p))}</span><span class="muted small">　${md(p.ending.at)}</span></div><button class="mini" data-act="cancelEnding" data-pid="${p.id}">取り消す</button></div></div>`
@@ -115,7 +116,7 @@ export const inPatientScreen = {
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('今日のタスク（朝6時にリセット）')}
       <div class="tlist">${dailyRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
-      ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-lp="lpTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}
+      ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}
       <div class="grid2"><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスク</button><button class="btn2" data-act="addTask" data-pid="${p.id}" data-dated="1">＋ 日付つき予定</button></div>
       ${sec('Problem List', `<button class="mini" data-act="addProblem" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card plist">${problems || '<div class="muted small">まだありません</div>'}</div>
@@ -138,30 +139,17 @@ export const inPatientScreen = {
     async tapDaily(ds) {
       const p = findPatient(ds.pid);
       const d = M.dailyGet(p);
-      const before = d[ds.f];
-      let next;
-      if (ds.f === 'visit') next = d.visit === 'done' ? 'todo' : 'done';
-      else next = d.blood === 'none' ? 'yes' : d.blood === 'yes' ? 'done' : 'none';
-      M.dailySet(p, ds.f, next);
+      const isVisit = ds.f === 'visit';
+      const opts = isVisit
+        ? [['todo', '未'], ['done', '済']]
+        : Object.entries(M.BLOOD).map(([k, b]) => [k, b.text]);
+      const cur = d[ds.f];
+      const v = await ui.choose(isVisit ? '回診' : '今日の採血', '', opts.map(([k, l]) => ({ v: k, label: l, tone: k === cur ? 'btn' : 'btn2' })));
+      if (!v || v === cur) return;
+      M.dailySet(p, ds.f, v);
       await savePatient(p);
       render();
-      ui.toast(ds.f === 'visit' ? (next === 'done' ? '回診：済' : '回診：未') : `今日の採血：${next === 'yes' ? 'あり' : next === 'done' ? '確認済' : 'なし'}`, async () => {
-        M.dailySet(p, ds.f, before);
-        await savePatient(p);
-        render();
-      });
-    },
-    async lpBlood(ds) {
-      const p = findPatient(ds.pid);
-      const v = await ui.choose('今日の採血', '', [
-        { v: 'none', label: 'なし' },
-        { v: 'yes', label: 'あり・確認待ち' },
-        { v: 'done', label: '確認済' },
-      ]);
-      if (!v) return;
-      M.dailySet(p, 'blood', v);
-      await savePatient(p);
-      render();
+      ui.toast(`${isVisit ? '回診' : '今日の採血'}：${opts.find(([k]) => k === v)[1]}`);
     },
     async icToday(ds) {
       const p = findPatient(ds.pid);

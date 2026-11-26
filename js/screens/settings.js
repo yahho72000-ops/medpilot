@@ -10,7 +10,7 @@ import { changePass, createIdKeys } from '../crypto.js';
 import { seedDemo } from '../demo.js';
 import * as ui from '../ui.js';
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;

@@ -36,16 +36,16 @@ export async function seedDemo() {
   const d = (n) => addDays(t, n);
 
   // 救急外来
-  const a = await make({ nickname: 'サクラ', ageBand: '80', sex: 'F', bed: 'ER-3', disease: '肺炎疑い', codeStatus: 'unknown' });
+  const a = await make({ nickname: 'サクラ', ageBand: '80', sex: 'F', ward: 'ER', room: '3', disease: '肺炎疑い', codeStatus: 'unknown' });
   setEr(a, ['ordered', 'resulted', 'todo', 'none', 'todo']);
   T(a, '喀痰培養の提出', 'todo');
   await savePatient(a);
 
-  const b = await make({ nickname: 'ゴロー', ageBand: '50', sex: 'M', bed: 'ER-1', disease: '腹痛', codeStatus: 'full' });
+  const b = await make({ nickname: 'ゴロー', ageBand: '50', sex: 'M', ward: 'ER', room: '1', disease: '腹痛', codeStatus: 'full' });
   setEr(b, ['ordered', 'resulted', 'done', 'none', 'done']);
   await savePatient(b);
 
-  const c = await make({ nickname: 'トラ', ageBand: '70', sex: 'M', bed: 'ER-5', disease: '頭部打撲', codeStatus: 'full' });
+  const c = await make({ nickname: 'トラ', ageBand: '70', sex: 'M', ward: 'ER', room: '5', disease: '頭部打撲', codeStatus: 'full' });
   setEr(c, ['done', 'resulted', 'none', 'done', 'done']);
   c.tasks[1].label = '画像（MRI）';
   M.applyEnding(c, 'admit_other', state.meta.templates, '脳外科');
@@ -56,7 +56,7 @@ export async function seedDemo() {
     const p = await make({ ...f, location: 'inpatient', admitDate: d(-admitAgo) });
     return p;
   };
-  const e = await inp({ nickname: 'ジロー', ageBand: '90', sex: 'M', bed: '5西-11', disease: '誤嚥性肺炎', codeStatus: 'dnar' }, 6);
+  const e = await inp({ nickname: 'ジロー', ageBand: '90', sex: 'M', ward: '5W', room: '511', disease: '誤嚥性肺炎', codeStatus: 'dnar' }, 6);
   e.problems = ['誤嚥性肺炎', 'アルツハイマー型認知症', '低アルブミン血症'];
   e.lastICDate = d(-3);
   e.outlook = 'nextweek';
@@ -79,21 +79,21 @@ export async function seedDemo() {
   ];
   await savePatient(e);
 
-  const f = await inp({ nickname: 'サクラ', ageBand: '80', sex: 'F', bed: '5東-12', disease: '肺炎', codeStatus: 'full' }, 0);
+  const f = await inp({ nickname: 'サクラ', ageBand: '80', sex: 'F', ward: '5E', room: '512', disease: '肺炎', codeStatus: 'full' }, 0);
   f.problems = ['市中肺炎'];
   M.dailySet(f, 'blood', 'yes');
   await savePatient(f);
 
-  const g = await inp({ nickname: 'タロウ', ageBand: '70', sex: 'M', bed: '5東-08', disease: '心不全', codeStatus: 'dnar' }, 3);
+  const g = await inp({ nickname: 'タロウ', ageBand: '70', sex: 'M', ward: '5E', room: '508', disease: '心不全', codeStatus: 'dnar' }, 3);
   g.lastICDate = d(-2);
   await savePatient(g);
 
-  const h = await inp({ nickname: 'ハナコ', ageBand: '60', sex: 'F', bed: '5西-03', disease: '尿路感染症', codeStatus: 'full' }, 8);
+  const h = await inp({ nickname: 'ハナコ', ageBand: '60', sex: 'F', ward: '5W', room: '503', disease: '尿路感染症', codeStatus: 'full' }, 8);
   h.lastICDate = d(-8);
   M.dailySet(h, 'visit', 'done');
   await savePatient(h);
 
-  const i = await inp({ nickname: 'マツ', ageBand: '80', sex: 'F', bed: '5東-02', disease: '脳梗塞', codeStatus: 'partial' }, 15);
+  const i = await inp({ nickname: 'マツ', ageBand: '80', sex: 'F', ward: '5E', room: '502', disease: '脳梗塞', codeStatus: 'partial' }, 15);
   i.lastICDate = d(-4);
   i.transferStart = d(-7);
   i.devices = [{ id: uuid(), type: '尿カテ', insertedDate: d(-15), removedDate: null }, { id: uuid(), type: '胃管', insertedDate: d(-15), removedDate: d(-5) }];
@@ -101,7 +101,7 @@ export async function seedDemo() {
   await savePatient(i);
 
   // 帰宅後フォロー
-  const j = await make({ nickname: 'ゴロー', ageBand: '40', sex: 'M', bed: 'ER-2', disease: '腹痛', codeStatus: 'full' });
+  const j = await make({ nickname: 'ゴロー', ageBand: '40', sex: 'M', ward: 'ER', room: '2', disease: '腹痛', codeStatus: 'full' });
   setEr(j, ['done', 'done', 'done', 'none', 'done']);
   T(j, '血液培養の結果確認', 'todo', { group: 'followup', due: t });
   T(j, '紹介状', 'done', { group: 'followup' });
@@ -109,7 +109,7 @@ export async function seedDemo() {
   j.homeDate = d(-1);
   await savePatient(j);
 
-  const k = await make({ nickname: 'ハナ', ageBand: '30', sex: 'F', bed: 'ER-4', disease: '尿路感染症', codeStatus: 'full' });
+  const k = await make({ nickname: 'ハナ', ageBand: '30', sex: 'F', ward: 'ER', room: '4', disease: '尿路感染症', codeStatus: 'full' });
   setEr(k, ['done', 'none', 'none', 'none', 'none']);
   T(k, '尿培養の結果確認', 'todo', { group: 'followup', due: d(2) });
   k.location = 'followup';
@@ -117,7 +117,7 @@ export async function seedDemo() {
   await savePatient(k);
 
   // 過去の一覧
-  const l = await make({ nickname: 'ケン', ageBand: '20', sex: 'M', bed: 'ER-1', disease: '急性アルコール中毒', codeStatus: 'full' });
+  const l = await make({ nickname: 'ケン', ageBand: '20', sex: 'M', ward: 'ER', room: '1', disease: '急性アルコール中毒', codeStatus: 'full' });
   setEr(l, ['done', 'none', 'done', 'none', 'done']);
   M.applyEnding(l, 'home', state.meta.templates);
   l.tasks.forEach((x) => M.setState(x, x.state === 'todo' ? 'done' : x.state));

@@ -29,7 +29,7 @@ export const followupScreen = {
           .filter((t) => t.group === 'followup' || M.isOpen(t))
           .map((t) => {
             const s = M.stateInfo(t);
-            return `<div class="trow" data-act="tapTask" data-lp="lpTask" data-pid="${p.id}" data-tid="${t.id}"><div class="tlabel">${esc(t.label)}</div><div class="tstate row-gap">${dueChip(t)}${chip(s.text, s.tone)}</div></div>`;
+            return `<div class="trow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}"><div class="tlabel">${esc(t.label)}</div><div class="tstate row-gap">${dueChip(t)}${chip(s.text, s.tone)}</div></div>`;
           })
           .join('');
         return `<div class="card">
@@ -42,7 +42,7 @@ export const followupScreen = {
       .join('');
     return `${header(`帰宅後フォロー　${list.length}人`, 'メニュー')}
       ${cards || emptyState('帰宅後フォローの患者はいません')}
-      <div class="muted small">タップで済に ・ 長押しで期限や名前を変えられます</div>
+      <div class="muted small">タップすると、状態・期限・名前を選んで変えられます</div>
       <button class="btn2" data-act="idLookup">識別番号から ID を調べる</button>`;
   },
 };

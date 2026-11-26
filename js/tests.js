@@ -75,7 +75,27 @@ async function run() {
   const dev = { type: '尿カテ', insertedDate: addDays(ymd(), -13), removedDate: null };
   eq('留置14日目', M.deviceDay(dev), 14);
   ok('14日目で警告', M.deviceWarn(dev));
-  eq('入院患者の残り（回診）', M.openCount(ip), 1);
+  eq('入院患者の残り（回診・採血未確認）', M.openCount(ip), 2);
+  eq('採血は最初「未確認」', M.dailyGet(ip).blood, 'unknown');
+  M.dailySet(ip, 'blood', 'none');
+  eq('採血なしなら残り1', M.openCount(ip), 1);
+  M.dailySet(ip, 'blood', 'yes');
+  eq('採血あり（確認未）は残る', M.openCount(ip), 2);
+  ip.tasks.push(M.newTask({ label: '採血', group: 'inpatient', dueDate: ymd() }));
+  const ip2 = { ...ip, daily: {} };
+  eq('今日の採血予定があれば「あり（確認未）」', M.dailyGet(ip2).blood, 'yes');
+
+  // タップで出す選択肢
+  eq('3段階の選択肢', M.stateChoices(M.newTask({ label: 'x', steps: 3 })).map((x) => x[0]), ['todo', 'ordered', 'resulted', 'done', 'none']);
+  eq('2段階の選択肢', M.stateChoices(M.newTask({ label: 'x', steps: 2 })).map((x) => x[0]), ['todo', 'done', 'none']);
+
+  // 病棟と病室
+  eq('病棟＋病室', M.bedLabel('5E', '512'), '5E-512');
+  eq('病棟だけ', M.bedLabel('ER', ''), 'ER');
+  eq('古い書き方を読む', M.parseBed('5e-12'), { ward: '5E', room: '12' });
+  eq('読めない書き方', M.parseBed('5東-12'), { ward: '', room: '' });
+  const wp = M.newPatient({ code: 'FFFF', nickname: 'x', ageBand: '50', sex: 'M', ward: '3W', room: '301', location: 'er' }, tpl);
+  eq('登録時のベッド表示', wp.bed, '3W-301');
 
   // 検査値の読み取り
   const text = '```\nMEDPILOT-LAB v1\n日付|項目名|値|H/L\n2026-10-09|白血球数|113|H\n2026/10/9|ﾍﾓｸﾞﾛﾋﾞﾝ|9.7|L\n10/10|ｸﾚｱﾁﾆﾝ|0.56|\n2026-10-10|AST|73H\n2026-10-10|謎の項目|?|\nこれは説明文\n```';
