@@ -92,6 +92,14 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   run(el.dataset.act, el, e);
 }, true);
+// 病室の欄は数字だけ（最大4桁）
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t && t.id && /-room$/.test(t.id)) {
+    const v = t.value.normalize('NFKC').replace(/\D/g, '').slice(0, 4);
+    if (v !== t.value) t.value = v;
+  }
+});
 document.addEventListener('keydown', (e) => {
   state.lastActive = Date.now();
   if (e.key === 'Enter' && e.target.id === 'sheet-input' && e.target.tagName === 'INPUT') {

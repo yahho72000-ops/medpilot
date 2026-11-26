@@ -44,6 +44,14 @@ async function run() {
   eq('入院日', p.admitDate, ymd());
   eq('入院1日目', M.hospitalDay(p), 1);
 
+  const ad = M.newPatient({ code: 'GGGG', nickname: '即入院', ageBand: '70', sex: 'F', ward: 'ER', room: '3', location: 'er' }, tpl);
+  M.setState(ad.tasks[0], 'ordered');
+  M.admitNow(ad, tpl, { ward: '5E', room: '512', date: '2026-11-27' });
+  eq('入院決定ですぐ入院患者へ', [ad.location, ad.admitDate, ad.bed], ['inpatient', '2026-11-27', '5E-512']);
+  eq('入院の手続きが追加される', ad.tasks.filter((t) => t.group === 'admit' && M.isOpen(t)).length, 9);
+  eq('ERの結果待ちは引き継ぐ', ad.tasks[0].state, 'ordered');
+  eq('入院後は終わり方なし', [ad.ending, M.progress(ad)], [null, null]);
+
   const h = M.newPatient({ code: 'BBBB', nickname: '帰宅', ageBand: '40', sex: 'M', location: 'er' }, tpl);
   M.applyEnding(h, 'home', tpl);
   h.tasks.filter((t) => t.group === 'home').forEach((t) => M.setState(t, 'done'));

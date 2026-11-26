@@ -12,7 +12,10 @@ function rowChips(p) {
   const d = M.dailyGet(p);
   if (d.visit === 'todo') out.push(chip('回診 未', 'r'));
   if (M.bloodOpen(d.blood)) out.push(chip(M.BLOOD[d.blood].short, M.BLOOD[d.blood].tone));
-  for (const t of M.openTasks(p)) out.push(taskChip(t));
+  const open = M.openTasks(p);
+  const admitOpen = open.filter((t) => t.group === 'admit').length;
+  if (admitOpen) out.push(chip(`入院手続き 残り${admitOpen}`, 'r'));
+  for (const t of open.filter((x) => x.group !== 'admit')) out.push(taskChip(t));
   if (M.icWarn(p)) out.push(chip(`家族IC ${M.icDays(p)}日前`, 'r', 'bold'));
   for (const dv of M.activeDevices(p).filter(M.deviceWarn)) out.push(chip(`${dv.type} ${M.deviceDay(dv)}日目`, 'r', 'bold'));
   if (p.transferStart) out.push(chip(`転院調整中（${md(p.transferStart)}〜）`, 'g'));
@@ -94,9 +97,12 @@ export const inPatientScreen = {
     // 済んだものは、入院後に追加したタスクだけ「今日」の間は見えるようにする
     const doneToday = (t) => !M.isOpen(t) && t.group === 'inpatient' && t.doneAt && dayKey(new Date(t.doneAt)) === todayKey;
     const listGroup = p.ending && (M.IN_ENDINGS[p.ending.type] || {}).list;
-    const todayTasks = p.tasks.filter((t) => t.group !== listGroup && ((M.isOpen(t) && M.isDueNow(t)) || doneToday(t)));
-    const future = M.futureTasks(p).filter((t) => t.group !== listGroup);
+    const todayTasks = p.tasks.filter((t) => t.group !== listGroup && t.group !== 'admit' && ((M.isOpen(t) && M.isDueNow(t)) || doneToday(t)));
+    const future = M.futureTasks(p).filter((t) => t.group !== listGroup && t.group !== 'admit');
     const listTasks = listGroup ? p.tasks.filter((t) => t.group === listGroup) : [];
+    // 入院の手続き：まだ残っている間だけ表示する
+    const admitTasks = p.tasks.filter((t) => t.group === 'admit');
+    const admitOpen = admitTasks.filter(M.isOpen).length;
     const icd = M.icDays(p);
     const icText = p.lastICDate ? `前回 ${mdw(p.lastICDate)}（${icd}日前）` : `まだ（入院から${icd}日）`;
     const problems = (p.problems || [])
@@ -114,6 +120,7 @@ export const inPatientScreen = {
       ${patientCard(p, `${demo(p)} ・ 入院${M.hospitalDay(p)}日目（${md(p.admitDate)}〜）`)}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
+      ${admitOpen ? `${sec(`入院の手続き（残り${admitOpen}）`)}<div class="tlist">${admitTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('今日のタスク（朝6時にリセット）')}
       <div class="tlist">${dailyRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
       ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}

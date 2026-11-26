@@ -317,6 +317,18 @@ export function progress(p) {
   return null;
 }
 
+// 救急外来から救急科に入院：その場で病棟・病室・入院日を入れて、すぐ入院患者へ
+// 入院の手続きのリストは入院患者のページに出す
+export function admitNow(p, templates, { ward, room, date }) {
+  p.ward = ward || '';
+  p.room = room || '';
+  p.bed = bedLabel(p.ward, p.room);
+  for (const label of templates.admit || []) p.tasks.push(newTask({ label, steps: 2, kind: 'list', group: 'admit' }));
+  p.location = 'inpatient';
+  p.admitDate = date || today();
+  p.ending = null;
+}
+
 export function moveToInpatient(p) {
   p.location = 'inpatient';
   p.admitDate = p.ending ? p.ending.at : today();

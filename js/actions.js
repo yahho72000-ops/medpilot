@@ -373,6 +373,27 @@ export const patientActions = {
   async erEnd(ds) {
     const p = P(ds);
     const e = M.ER_ENDINGS[ds.type];
+    if (ds.type === 'admit_er') {
+      const n = (state.meta.templates.admit || []).length;
+      const r = await ui.custom(`<div class="sheet-title">入院（救急科）</div>
+        <div class="muted small">すぐに入院患者の画面に移ります。入院の手続き（${n}項目）は、入院患者のページに出ます。</div>
+        <div class="lbl">病棟・病室</div>${wardRoomFields('a', '', '')}
+        <label class="lbl" for="a-date">入院日</label><input id="a-date" type="date" value="${ymd()}">
+        <div class="err" id="a-err"></div>
+        <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="admitOk">入院にする</button></div>`);
+      if (!r) return;
+      const snap = JSON.parse(JSON.stringify(p));
+      M.admitNow(p, state.meta.templates, r);
+      await savePatient(p);
+      go('inPatient', { id: p.id }, { replace: true });
+      ui.toast(`入院患者に移しました（${p.bed}）`, async () => {
+        for (const k of Object.keys(p)) delete p[k];
+        Object.assign(p, snap);
+        await savePatient(p);
+        go('erPatient', { id: p.id }, { replace: true });
+      });
+      return;
+    }
     let dept = '';
     if (ds.type === 'admit_other') {
       dept = await ui.promptText({ title: '他科に入院', label: '入院する科（空欄でも可）', placeholder: '例：脳外科' });
@@ -385,6 +406,15 @@ export const patientActions = {
     await savePatient(p);
     render();
     await afterChange(p);
+  },
+
+  admitOk() {
+    const ward = $('#a-ward').value;
+    if (!ward) {
+      $('#a-err').textContent = '病棟を選んでください';
+      return;
+    }
+    ui.resolveSheet({ ward, room: $('#a-room').value.normalize('NFKC').replace(/\D/g, '').slice(0, 4), date: $('#a-date').value || ymd() });
   },
 
   async inEnd(ds) {
