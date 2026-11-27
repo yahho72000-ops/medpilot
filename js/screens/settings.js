@@ -14,7 +14,7 @@ import * as K from '../meds.js';
 import * as F from '../nutrition.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.5.0';
+export const APP_VERSION = '0.5.1';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;

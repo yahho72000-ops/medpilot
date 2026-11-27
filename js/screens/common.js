@@ -3,7 +3,7 @@
 import { esc, mdw, md } from '../util.js';
 import { state } from '../store.js';
 import * as M from '../model.js';
-import { latestValues } from '../labs.js';
+import { latestValues, ccrOf, ccrText } from '../labs.js';
 import { nutritionLine } from '../nutrition.js';
 
 export function header(title, backLabel, right = '') {
@@ -64,9 +64,20 @@ export function profileCard(p) {
     <div class="row-between"><div class="pname">${nick(p)}${p.bed ? `　<span class="muted">${esc(p.bed)}</span>` : ''}</div><div class="tools"><button class="mini" data-act="revealId" data-pid="${p.id}">ID</button><button class="mini" data-act="editPatient" data-pid="${p.id}">編集</button></div></div>
     <div class="muted">${esc(line)}</div>
     ${main ? `<div class="mainprob">${esc(main)}</div>` : ''}
+    ${ccrLine(p)}
     ${nutritionLine(p) ? `<div class="small">栄養：${esc(nutritionLine(p))}</div>` : ''}
     ${warns.length ? `<div class="chips-row">${warns.join('')}</div>` : ''}
   </div>`;
+}
+
+// CCr の1行（Cre の値と日付つき）
+export function ccrLine(p, { detail = false } = {}) {
+  const c = ccrOf(p, state.meta.labItems);
+  if (!c) return '';
+  const src = `Cre ${c.cre} ・ ${md(c.date)}`;
+  if (c.missing) return `<div class="small muted">${esc(ccrText(c))}（${esc(src)}）</div>`;
+  const how = detail ? `<div class="muted tiny">Cockcroft-Gault：${c.age}歳（年代の真ん中。幅は年代の両端）・${c.weight}kg・${M.SEX[p.sex]}・Cre そのままで計算</div>` : '';
+  return `<div class="small ccr"><b>${esc(ccrText(c))}</b><span class="muted">（${esc(src)}）</span></div>${how}`;
 }
 
 // 2枚目の上に出す小さな見出し（だれのページか）
@@ -130,7 +141,7 @@ export function labGrid(p) {
       </button>`;
     })
     .join('');
-  return `<div class="muted small right">${md(lastDate)} の値（タップで経過）</div><div class="lgrid">${cells}</div>`;
+  return `<div class="muted small right">${md(lastDate)} の値（タップで経過）</div><div class="lgrid">${cells}</div>${ccrLine(p, { detail: true })}`;
 }
 
 export function devicesBlock(p, { readonly = false } = {}) {

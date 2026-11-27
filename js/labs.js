@@ -143,3 +143,41 @@ export function historyOf(patient, itemId) {
     .filter((l) => l.itemId === itemId)
     .sort((a, b) => (keyOf(a) < keyOf(b) ? 1 : -1));
 }
+
+// ---- CCr（Cockcroft-Gault）----
+// CCr ＝ (140 − 年齢) × 体重 ÷ (72 × Cre)、女性は × 0.85
+// 年齢は年代しかないので、真ん中（80代→85歳）で計算し、両端（80歳・89歳）の幅も出す。Cre は値そのまま（切り上げない）
+export function ccrFormula(age, weight, cre, sex) {
+  return ((140 - age) * weight) / (72 * cre) * (sex === 'F' ? 0.85 : 1);
+}
+
+export function ccrOf(p, items) {
+  const it = items.find((x) => x.abbr === 'Cre');
+  if (!it) return null;
+  const last = historyOf(p, it.id).find((l) => num(l.value) !== null);
+  if (!last) return null; // Cre がなければ何も出さない
+  const cre = num(last.value);
+  const base = { cre: last.value, date: last.date };
+  if (p.ageBand === '0') return null; // 10歳未満には出さない
+  if (!p.ageBand) return { ...base, missing: '年代' };
+  if (!p.sex) return { ...base, missing: '性別' };
+  if (!(Number(p.weight) > 0)) return { ...base, missing: '体重' };
+  if (!(cre > 0)) return null;
+  const b = Number(p.ageBand);
+  const [young, mid, old] = b >= 100 ? [100, 100, 100] : [b, b + 5, b + 9];
+  const w = Number(p.weight);
+  return {
+    ...base,
+    mid: Math.round(ccrFormula(mid, w, cre, p.sex)),
+    lo: Math.round(ccrFormula(old, w, cre, p.sex)),
+    hi: Math.round(ccrFormula(young, w, cre, p.sex)),
+    age: mid,
+    weight: w,
+  };
+}
+
+export function ccrText(c) {
+  if (!c) return '';
+  if (c.missing) return `CCr：${c.missing}を入れると出ます`;
+  return c.lo === c.hi ? `CCr 約${c.mid}mL/min` : `CCr 約${c.mid}（${c.lo}〜${c.hi}）mL/min`;
+}

@@ -1,7 +1,7 @@
 // ロジックのテスト（tests.html を開くと実行）
 
 import * as M from './model.js';
-import { parseLabText, groupImport, matchItem, latestValues, defaultLabItems } from './labs.js';
+import { parseLabText, groupImport, matchItem, latestValues, defaultLabItems, ccrOf, ccrText } from './labs.js';
 import { hashPin, verifyPin, createIdKeys, encryptId, openPrivate, decryptId, changePass, randomCode, CODE_CHARS } from './crypto.js';
 import { dayKey, addDays, diffDays, ymd, norm } from './util.js';
 import * as K from './meds.js';
@@ -202,6 +202,19 @@ async function run() {
   ok('0.3.0 のよく使う薬に組成を足す', K.upgradeFavMeds(oldFavs) && oldFavs[0].amount === 5 && !!K.findFav(oldFavs, 'ニカルジピン') && !K.upgradeFavMeds(oldFavs));
   eq('メインプロブレム（#1）', M.mainProblem({ problems: ['敗血症性ショック', 'AKI'], disease: '敗血症' }), '#1 敗血症性ショック');
   eq('メインプロブレム（病名）', M.mainProblem({ problems: [], disease: '腹痛' }), '腹痛');
+
+  // CCr（年代の真ん中と両端）
+  const cItems = defaultLabItems();
+  const creIt = cItems.find((x) => x.abbr === 'Cre');
+  const cp = { ageBand: '80', sex: 'M', weight: 65, labs: [{ date: '2026-11-26', draw: 1, itemId: creIt.id, value: '1.30', flag: 'H' }, { date: '2026-11-27', draw: 1, itemId: creIt.id, value: '1.12', flag: 'H' }] };
+  const cc = ccrOf(cp, cItems);
+  eq('CCr 80代男性 65kg Cre 1.12（最新）', [cc.mid, cc.lo, cc.hi], [44, 41, 48]);
+  eq('CCr の表示', ccrText(cc), 'CCr 約44（41〜48）mL/min');
+  eq('女性は 0.85 倍', ccrOf({ ...cp, sex: 'F' }, cItems).mid, 38);
+  eq('体重がなければ案内', ccrText(ccrOf({ ...cp, weight: null }, cItems)), 'CCr：体重を入れると出ます');
+  eq('Cre がなければ出さない', ccrOf({ ...cp, labs: [] }, cItems), null);
+  eq('10歳未満は出さない', ccrOf({ ...cp, ageBand: '0' }, cItems), null);
+  eq('Cre 0.4 もそのまま', ccrOf({ ...cp, labs: [{ date: '2026-11-27', draw: 1, itemId: creIt.id, value: '0.4', flag: 'L' }] }, cItems).mid, 124);
 
   // 栄養
   const af = F.findFeedFav(F.defaultFavFeeds(), 'ペプタメン AF');
