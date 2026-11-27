@@ -13,6 +13,9 @@ export function register(screens) {
 export const current = () => stack[stack.length - 1];
 
 export function go(name, params = {}, opts = {}) {
+  // 患者ページから別の画面へ行ったら、戻ったときは 1 枚目（TODO）を出す
+  const cur = current();
+  if (cur && cur.params && 'page' in cur.params) delete cur.params.page;
   if (opts.reset) stack = [];
   if (opts.replace) stack.pop();
   stack.push({ name, params });
