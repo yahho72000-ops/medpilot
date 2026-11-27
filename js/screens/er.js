@@ -3,7 +3,7 @@
 import { esc, ymd, mdw, md, $ } from '../util.js';
 import { state, findPatient, savePatient, existingCodes, remember } from '../store.js';
 import * as M from '../model.js';
-import { go } from '../router.js';
+import { go, backTo, current } from '../router.js';
 import { encryptId, randomCode } from '../crypto.js';
 import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick, pageTabs, profileCard, miniHead } from './common.js';
 import { setPage } from './inpatient.js';
@@ -11,6 +11,7 @@ import * as ui from '../ui.js';
 import { wardRoomFields } from '../actions.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 import { nutritionBlock, memoRow } from '../nutriUI.js';
+import { summaryBlock, summaryButton, applyDraftToNew, draftProfile } from './summary.js';
 
 // ---- 一覧 ----
 export const erListScreen = {
@@ -98,6 +99,8 @@ export const erPatientScreen = {
       ${pageTabs(2)}
       <div class="ppage">
       ${miniHead(p)}
+      ${summaryButton(p)}
+      ${summaryBlock(p)}
       ${sec('検査値')}
       ${labGrid(p)}
       <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>
@@ -120,14 +123,19 @@ export const erPatientScreen = {
 
 // ---- 登録 ----
 export const registerScreen = {
-  render({ to = 'er' }) {
+  render({ to = 'er', summary }) {
     const sug = (state.meta.history.diseases || []).slice(0, 10);
-    const ages = M.AGE_BANDS.map((b) => `<button data-act="pick" data-v="${b}">${M.ageButton(b)}</button>`).join('');
-    const codes = Object.entries(M.CODE_STATUS).map(([k, l]) => `<button class="${k === 'unknown' ? 'on' : ''}" data-act="pick" data-v="${k}">${l}</button>`).join('');
+    // まとめカルテから登録するときは、読み取った値を最初から入れておく
+    const pf = (summary && draftProfile()) || {};
+    const on = (a, b) => (a === b ? 'class="on"' : '');
+    const ages = M.AGE_BANDS.map((b) => `<button ${on(pf.ageBand, b)} data-act="pick" data-v="${b}">${M.ageButton(b)}</button>`).join('');
+    const code0 = pf.codeStatus || 'unknown';
+    const codes = Object.entries(M.CODE_STATUS).map(([k, l]) => `<button class="${k === code0 ? 'on' : ''}" data-act="pick" data-v="${k}">${l}</button>`).join('');
     return `${header('患者を登録', '戻る')}
+      ${summary && draftProfile() ? '<div class="card small">まとめカルテから読み取った値を入れています。あだ名・病棟・病室・ID を入れて登録してください。</div>' : ''}
       <div class="field"><div class="lbl">登録先</div>
         <div class="seg" data-pick="to"><button class="${to === 'er' ? 'on' : ''}" data-act="pick" data-v="er">救急外来</button><button class="${to === 'in' ? 'on' : ''}" data-act="pick" data-v="in">入院患者</button></div></div>
-      <div class="field ${to === 'in' ? '' : 'hidden'}" id="admit-field"><label class="lbl" for="r-admit">入院日</label><input id="r-admit" type="date" value="${ymd()}"></div>
+      <div class="field ${to === 'in' ? '' : 'hidden'}" id="admit-field"><label class="lbl" for="r-admit">入院日</label><input id="r-admit" type="date" value="${pf.admitDate || ymd()}"></div>
       <div class="muted small">急いでいるときは空のままでも登録できます（あとで「編集」から入れられます）。</div>
       <div class="field"><label class="lbl" for="r-id1">患者ID（8桁）</label>
         <input id="r-id1" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput">
@@ -136,11 +144,11 @@ export const registerScreen = {
         <div class="muted small" id="id-note">IDは暗号化して保存します。見るときは合言葉が必要です。</div></div>
       <div class="field"><label class="lbl" for="r-nick">あだ名</label><input id="r-nick" type="text" autocomplete="off" placeholder="本名を連想させない名前に"></div>
       <div class="field"><div class="lbl">年代</div><div class="seg wrap6" data-pick="age">${ages}</div></div>
-      <div class="field"><div class="lbl">性別</div><div class="seg" data-pick="sex"><button data-act="pick" data-v="M">男性</button><button data-act="pick" data-v="F">女性</button></div></div>
+      <div class="field"><div class="lbl">性別</div><div class="seg" data-pick="sex"><button ${on(pf.sex, 'M')} data-act="pick" data-v="M">男性</button><button ${on(pf.sex, 'F')} data-act="pick" data-v="F">女性</button></div></div>
       <div class="field"><div class="lbl">病棟・病室（救急外来は ER ＋ブース番号）</div>${wardRoomFields('r', to === 'er' ? 'ER' : '', '')}</div>
-      <div class="field"><label class="lbl" for="r-dx">病名</label><input id="r-dx" type="text" autocomplete="off">
+      <div class="field"><label class="lbl" for="r-dx">病名</label><input id="r-dx" type="text" autocomplete="off" value="${esc(pf.disease || '')}">
         ${sug.length ? `<div class="chips-row">${sug.map((s) => `<button class="pill" data-act="fillDx" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}</div>
-      <div class="field"><label class="lbl" for="r-wt">体重（kg）　γ の計算に使います</label><input id="r-wt" type="text" inputmode="decimal" autocomplete="off" placeholder="例：62"></div>
+      <div class="field"><label class="lbl" for="r-wt">体重（kg）　γ の計算に使います</label><input id="r-wt" type="text" inputmode="decimal" autocomplete="off" placeholder="例：62" value="${pf.weight ? esc(String(pf.weight)) : ''}"></div>
       <div class="field"><div class="lbl">CODE</div><div class="seg" data-pick="code">${codes}</div></div>
       <div class="muted small">識別番号（例：7K3F）は登録すると自動で付きます。</div>
       <div class="err" id="reg-err"></div>
@@ -199,6 +207,15 @@ export const registerScreen = {
         $('#r-id2').value = '';
         await savePatient(p);
         await remember('diseases', p.disease);
+        if (current().params.summary && draftProfile()) {
+          // まとめカルテで選んだもの（Problem List・薬・培養など）を入れる
+          const n = applyDraftToNew(p);
+          await savePatient(p);
+          ui.toast(`登録しました（${p.code}）。まとめカルテから ${n}件 入れました`);
+          backTo(to === 'in' ? 'inList' : 'erList');
+          go(to === 'in' ? 'inPatient' : 'erPatient', { id: p.id });
+          return;
+        }
         ui.toast(`登録しました（${p.code}）`);
         go(to === 'in' ? 'inPatient' : 'erPatient', { id: p.id }, { replace: true });
       } catch (e) {

@@ -5,7 +5,7 @@ import { state, saveMeta, setDemo, clearDemo, wipeAll } from '../store.js';
 import * as M from '../model.js';
 import { go, render, current } from '../router.js';
 import { header, sec } from './common.js';
-import { LAB_PROMPT } from '../labs.js';
+import { TEMPLATES } from './summary.js';
 import { changePass, createIdKeys } from '../crypto.js';
 import { seedDemo } from '../demo.js';
 import * as ui from '../ui.js';
@@ -15,7 +15,7 @@ import * as F from '../nutrition.js';
 import { backupDays } from '../backup.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.6.0';
+export const APP_VERSION = '0.7.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -64,8 +64,11 @@ export const settingsScreen = {
       ${sec('検査値')}
       <div class="card kvlist">
         ${row('goLabItems', '検査項目（略称・単位・カルテでの名前）')}
-        ${row('showPrompt', 'AI への指示文（検査値）')}
-        ${row('showCulturePrompt', 'AI への指示文（培養）')}
+      </div>
+      ${sec('病院の AI のテンプレート')}
+      <div class="card kvlist">
+        <div class="muted small">病院の AI に一度登録して使います。中に患者さんの情報は入っていません。よく使う薬・栄養・検査項目を変えたら、登録し直すと確実です。</div>
+        ${Object.entries(TEMPLATES).map(([k, t]) => row('showTemplate', `${t.title}（${t.tag}）`, '›', `data-k="${k}"`)).join('')}
       </div>
       ${sec('デモモード')}
       <div class="card stack">
@@ -116,20 +119,6 @@ export const settingsScreen = {
     },
     editTpl(ds) { go('tplEdit', { k: ds.k }); },
     goLabItems() { go('labItems'); },
-    showPrompt() {
-      ui.sheet(`<div class="sheet-title">AI への指示文</div><textarea class="mono" rows="12" readonly data-autofocus="no">${esc(LAB_PROMPT)}</textarea>
-        <div class="grid2"><button class="btn3" data-act="sheetCancel">閉じる</button><button class="btn" data-act="copyPromptS">コピー</button></div>`);
-    },
-    async copyPromptS() {
-      try { await navigator.clipboard.writeText(LAB_PROMPT); ui.toast('コピーしました'); } catch (e) { ui.toast('長押しで選んでコピーしてください'); }
-    },
-    showCulturePrompt() {
-      ui.sheet(`<div class="sheet-title">AI への指示文（培養）</div><textarea class="mono" rows="14" readonly data-autofocus="no">${esc(K.CULTURE_PROMPT)}</textarea>
-        <div class="grid2"><button class="btn3" data-act="sheetCancel">閉じる</button><button class="btn" data-act="copyCulturePromptS">コピー</button></div>`);
-    },
-    async copyCulturePromptS() {
-      try { await navigator.clipboard.writeText(K.CULTURE_PROMPT); ui.toast('コピーしました'); } catch (e) { ui.toast('長押しで選んでコピーしてください'); }
-    },
     goNotify() { go('notifySettings'); },
     goFavMeds() { go('favMeds'); },
     goNutri() { go('nutriSettings'); },

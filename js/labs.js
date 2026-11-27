@@ -47,16 +47,40 @@ export function defaultLabItems() {
   }));
 }
 
-export const LAB_PROMPT = `この画像は電子カルテの血液検査の結果です。
-次の形式だけで、表の値をすべて書き出してください。説明は不要です。
+// 病院の AI に登録するテンプレート（電カルの検査結果の文を貼って使う）
+export function labPrompt(items) {
+  const names = (items && items.length ? [...items].sort((a, b) => a.order - b.order).map((it) => it.abbr) : DEFAULT_ITEMS.map((r) => r[0])).join(' ');
+  return `この文のあとに貼る血液検査の結果を、決まった形に書き出してください。
+答えは、医師がスマホのカメラで画面の文字を読み取り、アプリに取り込みます。形が少しでも違うと正しく取り込めないので、下の決まりを必ず守ってください。あいさつや説明は書かないでください。
 
-MEDPILOT-LAB v1
-日付|項目名|値|H/L
+■ 答えの形
+【MedPilot 検査】
+日付 年/月/日 年/月/日 …
+項目名 値 値 …
+【おわり】
 
-・日付は列の見出しの日付（例：2026-10-09）
-・項目名と値は画像のとおり（単位の変換はしない）
-・H/L の印がなければ空欄
-・読めない値は ? と書く`;
+■ 決まり
+1. 1行目は【MedPilot 検査】、最後の行は【おわり】にする。
+2. 2行目は「日付」のあとに、検査した日を古い順に空白で区切って並べる。日付は 2026/11/24 の形（年も書く）。
+3. 日付が6日分以上あるときは、新しい5日分だけにする。同じ日に2回あるときは、あとの結果だけにする。
+4. そのあと1項目1行。項目名のあとに、日付と同じ順で値を空白で区切って並べる。
+5. その日に値がないときは - と書いて、値の数を日付の数とそろえる。
+6. H・L の印は、値のすぐ後ろに空白なしで付ける（例：12.3H）。印がなければ付けない。
+7. 値はカルテのとおりに写す。単位は書かない。単位の変換もしない。読めない値は ? と書く。
+8. 項目名の中に空白を入れない。できるだけ次の書き方にそろえる：
+${names}
+この中にない項目は、カルテの書き方のまま。
+9. 表・太字・箇条書きは使わない。患者さんの名前・ID は書かない。
+10. 下の「例：」で始まる行は書き方の見本。答えには「例：」を書かない。
+11. 書き終えたら、カルテと見比べて、数字の写し間違いがないか確かめてから答える。
+
+例：日付 2026/11/24 2026/11/25 2026/11/26
+例：WBC 12.3H 10.1H 8.2
+例：CRP 15.20H - 8.10H
+
+ここから検査結果：
+`;
+}
 
 // ---- AI の答えを読む ----
 function normDate(s, today = ymd()) {
@@ -69,6 +93,14 @@ function normDate(s, today = ymd()) {
 }
 
 export function parseLabText(text, today = ymd()) {
+  const old = parseLabPipe(text, today);
+  if (old.rows.length) return old;
+  const nw = parseLabSpace(text, today);
+  return nw.rows.length ? nw : old;
+}
+
+// 前の形（「日付|項目名|値|H/L」）
+function parseLabPipe(text, today) {
   const rows = [];
   const skipped = [];
   for (const raw of String(text).split(/\r?\n/)) {
@@ -86,6 +118,53 @@ export function parseLabText(text, today = ymd()) {
     if (m) { value = m[1]; if (!flag) flag = m[2].toUpperCase(); }
     if (flag !== 'H' && flag !== 'L') flag = '';
     rows.push({ date, name: parts[1], value, flag });
+  }
+  return { rows, skipped };
+}
+
+// 病院の AI の形（「日付 2026/11/24 …」の行と「WBC 12.3H 10.1H」の行）。iPhone の文字読み取りの読み間違いも直す
+const DASH = /^[-‐‑‒–—―−ー一－~〜]+$/;
+function splitDates(s, today) {
+  const out = [];
+  const re = /(?:(\d{4})\s*[/\-.年]\s*)?(\d{1,2})\s*[/\-.月]\s*(\d{1,2})(?!\d)\s*日?/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const d = normDate(m[1] ? `${m[1]}/${m[2]}/${m[3]}` : `${m[2]}/${m[3]}`, today);
+    if (d) out.push(d > today && !m[1] ? `${Number(d.slice(0, 4)) - 1}${d.slice(4)}` : d);
+  }
+  return out;
+}
+function parseLabSpace(text, today) {
+  const rows = [];
+  const skipped = [];
+  const lines = String(text).split(/\r?\n/).map((x) => x.normalize('NFKC').replace(/\*\*/g, '').trim()).filter(Boolean);
+  const isStart = (l) => /^[【[]?(med.{0,6})?検査[】\]]?$/i.test(l.replace(/\s/g, ''));
+  const isEnd = (l) => /^[【[]?(お|終)わ[りリ][】\]]?$/.test(l.replace(/\s/g, ''));
+  const hasStart = lines.some(isStart);
+  let on = !hasStart;
+  let dates = [];
+  for (const raw of lines) {
+    if (isStart(raw)) { on = true; dates = []; continue; }
+    if (isEnd(raw)) { on = false; continue; }
+    if (!on || /^例\s*[:：)）]/.test(raw)) continue;
+    const line = raw.replace(/(?<=\d)[Oo](?=[\d./HL\s]|$)|(?<=[\d./\s])[Oo](?=\d)/g, '0');
+    if (/^日付/.test(line)) { dates = splitDates(line.replace(/^日付\s*[:：]?/, ''), today); continue; }
+    if (!dates.length) { skipped.push(raw); continue; }
+    // 「12.3 H」のように離れた印をくっつける
+    const tk = [];
+    for (const t of line.split(/\s+/)) {
+      if (/^[HL]$/i.test(t) && tk.length && /\d$/.test(tk[tk.length - 1])) tk[tk.length - 1] += t.toUpperCase();
+      else tk.push(DASH.test(t) ? '-' : t);
+    }
+    if (tk.length < dates.length + 1) { skipped.push(raw); continue; }
+    const vals = tk.slice(-dates.length);
+    let name = tk.slice(0, tk.length - dates.length).join('');
+    name = name.replace(/^[yY](?=-?GT)/, 'γ');
+    vals.forEach((v, i) => {
+      if (v === '-' || v === '?' || v === '？') return;
+      const m = v.match(/^([<>≦≧≤≥]?[-+]?[\d.,]+)([HL])?$/i);
+      rows.push({ date: dates[i], name, value: m ? m[1] : v, flag: m && m[2] ? m[2].toUpperCase() : '' });
+    });
   }
   return { rows, skipped };
 }

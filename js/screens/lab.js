@@ -4,42 +4,26 @@ import { esc, ymdJa, uuid, $, $$ } from '../util.js';
 import { state, findPatient, savePatient, saveMeta } from '../store.js';
 import { back, go } from '../router.js';
 import { header, emptyState } from './common.js';
-import { LAB_PROMPT, parseLabText, groupImport, matchItem } from '../labs.js';
+import { parseLabText, groupImport, matchItem } from '../labs.js';
 import * as ui from '../ui.js';
+import { hospitalSteps, pasteAppend } from './summary.js';
 
 export const labImportScreen = {
   render({ id }) {
     const p = findPatient(id);
     if (!p) return `${header('検査値の読み込み', '戻る')}${emptyState('患者が見つかりません')}`;
-    const preview = LAB_PROMPT.split('\n').slice(0, 2).join('\n');
     const draft = state.labDraft && state.labDraft.patientId === p.id ? state.labDraft.text : '';
     const step = (n, title, body) => `<div class="card step"><div class="step-hd"><span class="num">${n}</span><span class="step-title">${title}</span></div>${body}</div>`;
     return `${header('検査値の読み込み', p.code)}
-      ${step(1, '指示文をコピー', `<div class="mono box">${esc(preview)}\n…</div><button class="btn" data-act="copyPrompt">指示文をコピー</button>`)}
-      ${step(2, 'AIアプリで写真と一緒に送る', '<div>Claude や ChatGPT を開いて指示文を貼り付け、検査値の画面を撮影して送ります。</div><div class="warn-a small">患者情報は写さない ・ 履歴に残らないモードがおすすめ</div>')}
-      ${step(3, 'AIの答えをコピー', '<div>答えを長押しして「コピー」を選びます。</div>')}
-      ${step(4, 'ここに貼り付け', `<textarea id="lab-text" class="mono" rows="7" placeholder="MEDPILOT-LAB v1&#10;2026-11-27|白血球数|98|H&#10;…">${esc(draft)}</textarea>
-        <button class="btn2" data-act="pasteClip">クリップボードから貼り付け</button>
+      ${hospitalSteps('lab', '電カルの検査結果')}
+      ${step(3, 'ここに貼る', `<div class="muted small">長いときは、何回かに分けて貼り足せます。</div>
+        <textarea id="lab-text" class="mono" rows="7" placeholder="【MedPilot 検査】&#10;日付 2026/11/26 2026/11/27&#10;WBC 12.3H 9.8&#10;【おわり】">${esc(draft)}</textarea>
+        <button class="btn2" data-act="pasteClip">クリップボードから貼り足す</button>
         <div class="err" id="lab-err"></div>`)}
       <button class="btn" data-act="parseLab" data-pid="${p.id}">読み込んで確認へ</button>`;
   },
   actions: {
-    async copyPrompt() {
-      try {
-        await navigator.clipboard.writeText(LAB_PROMPT);
-        ui.toast('指示文をコピーしました');
-      } catch (e) {
-        ui.sheet(`<div class="sheet-title">指示文</div><div class="muted small">自動でコピーできませんでした。下の文を長押しで選んでコピーしてください。</div><textarea class="mono" rows="10" readonly data-autofocus="no">${esc(LAB_PROMPT)}</textarea><button class="btn3" data-act="sheetCancel">閉じる</button>`);
-      }
-    },
-    async pasteClip() {
-      try {
-        const t = await navigator.clipboard.readText();
-        $('#lab-text').value = t;
-      } catch (e) {
-        ui.toast('自動で貼り付けできませんでした。枠を長押しして「ペースト」してください');
-      }
-    },
+    pasteClip() { return pasteAppend('#lab-text'); },
     parseLab(ds) {
       const p = findPatient(ds.pid);
       const text = $('#lab-text').value;

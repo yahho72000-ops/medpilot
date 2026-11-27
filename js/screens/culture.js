@@ -7,6 +7,7 @@ import { header, emptyState } from './common.js';
 import * as K from '../meds.js';
 import * as ui from '../ui.js';
 import { afterChange } from '../actions.js';
+import { hospitalSteps, pasteAppend } from './summary.js';
 
 const find = (id, cid) => {
   const p = findPatient(id);
@@ -22,29 +23,16 @@ export const cultureImportScreen = {
     const step = (n, title, body) => `<div class="card step"><div class="step-hd"><span class="num">${n}</span><span class="step-title">${title}</span></div>${body}</div>`;
     return `${header('培養の読み込み', p.code)}
       <div class="muted">${esc(K.cultureTitle(c))}（提出 ${esc(c.submitted)}）</div>
-      ${step(1, '指示文をコピー', `<div class="mono box">${esc(K.CULTURE_PROMPT.split('\n').slice(0, 2).join('\n'))}\n…</div><button class="btn" data-act="copyCulturePrompt">指示文をコピー</button>`)}
-      ${step(2, 'AIアプリで写真と一緒に送る', '<div>Claude や ChatGPT を開いて指示文を貼り付け、報告書の画面を撮影して送ります。途中報告（グラム染色だけ）でも使えます。</div><div class="warn-a small">患者情報は写さない ・ 履歴に残らないモードがおすすめ</div>')}
-      ${step(3, 'AIの答えをコピーして貼り付け', `<textarea id="cu-text" class="mono" rows="8" placeholder="MEDPILOT-CULTURE v1&#10;検体|血液&#10;グラム|GNR&#10;菌|1|Escherichia coli|&#10;感受性|1|ABPC|>16|R">${esc(draft)}</textarea>
-        <button class="btn2" data-act="pasteCulture">クリップボードから貼り付け</button>
+      ${hospitalSteps('culture', '電カルの培養の報告')}
+      <div class="muted small">途中報告（グラム染色だけ）でも使えます。</div>
+      ${step(3, 'ここに貼る', `<div class="muted small">長いときは、何回かに分けて貼り足せます。</div>
+        <textarea id="cu-text" class="mono" rows="8" placeholder="【MedPilot 培養】&#10;検体：血液&#10;グラム：GNR&#10;菌1：Escherichia coli&#10;感受性1：ABPC >16 R&#10;【おわり】">${esc(draft)}</textarea>
+        <button class="btn2" data-act="pasteCulture">クリップボードから貼り足す</button>
         <div class="err" id="cu-err"></div>`)}
       <button class="btn" data-act="parseCulture" data-pid="${p.id}" data-cid="${c.id}">読み込んで確認へ</button>`;
   },
   actions: {
-    async copyCulturePrompt() {
-      try {
-        await navigator.clipboard.writeText(K.CULTURE_PROMPT);
-        ui.toast('指示文をコピーしました');
-      } catch (e) {
-        ui.sheet(`<div class="sheet-title">指示文</div><div class="muted small">自動でコピーできませんでした。下の文を長押しで選んでコピーしてください。</div><textarea class="mono" rows="12" readonly data-autofocus="no">${esc(K.CULTURE_PROMPT)}</textarea><button class="btn3" data-act="sheetCancel">閉じる</button>`);
-      }
-    },
-    async pasteCulture() {
-      try {
-        $('#cu-text').value = await navigator.clipboard.readText();
-      } catch (e) {
-        ui.toast('自動で貼り付けできませんでした。枠を長押しして「ペースト」してください');
-      }
-    },
+    pasteCulture() { return pasteAppend('#cu-text'); },
     parseCulture(ds) {
       const text = $('#cu-text').value;
       const r = K.parseCultureText(text);

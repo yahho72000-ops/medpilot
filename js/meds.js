@@ -341,20 +341,38 @@ export function clinicalCount(p, day = ymd()) {
   return t.cultures.length + t.meds.length;
 }
 
-// ---- 培養の報告書を AI に読んでもらう ----
-export const CULTURE_PROMPT = `この画像は電子カルテの細菌検査（培養）の報告です。
-次の形式だけで書き出してください。説明は不要です。
+// ---- 培養の報告書を病院の AI に読んでもらう（テンプレート） ----
+export const CULTURE_PROMPT = `この文のあとに貼る細菌検査（培養）の報告を、決まった形に書き出してください。
+答えは、医師がスマホのカメラで画面の文字を読み取り、アプリに取り込みます。形が少しでも違うと正しく取り込めないので、下の決まりを必ず守ってください。あいさつや説明は書かないでください。
 
-MEDPILOT-CULTURE v1
-検体|検体の種類（血液・尿・痰など）
-グラム|グラム染色の結果（なければこの行は不要）
-菌|番号|菌名|菌量
-感受性|番号|薬剤名|MIC|判定
+■ 答えの形
+【MedPilot 培養】
+検体：
+グラム：
+菌1：
+感受性1：
+【おわり】
 
-・菌が複数あれば、番号を 1、2… と分ける（感受性の行も同じ番号）
-・判定は S・I・R のどれか（書いていなければ空欄）
-・菌が出ていない（陰性・発育なし）ときは「菌|0|陰性|」と書く
-・読めない文字は ? と書く`;
+■ 決まり
+1. 1行目は【MedPilot 培養】、最後の行は【おわり】にする。
+2. 検体は ${SPECIMENS.filter((s) => s !== 'その他').join('、')} のどれか（ほかは報告のとおり）。
+3. グラム染色の結果があれば「グラム：」の行に書く（なければ行ごと書かない）。
+4. 菌は「菌1：」「菌2：」と番号を付けて1行に1つ。菌量があれば、菌名のあとに「菌量 ◯」と書く。
+5. 感受性は1つの薬を1行で「感受性1：薬の名前 MIC 判定」。番号は菌の番号と同じにする。判定は S、I、R のどれか（書いていなければ書かない）。
+6. 菌が出ていない（陰性・発育なし）ときは「菌：陰性」とだけ書く。
+7. 薬の名前・MIC は報告のとおり。名前の中に空白を入れない。読めない文字は ? と書く。
+8. 表・太字・箇条書きは使わない。患者さんの名前・ID は書かない。
+9. 下の「例：」で始まる行は書き方の見本。答えには「例：」を書かない。
+10. 書き終えたら、報告と見比べて、写し間違い・書きもらしがないか確かめてから答える。
+
+例：検体：血液
+例：グラム：GNR
+例：菌1：Escherichia coli 菌量 3+
+例：感受性1：ABPC >16 R
+例：感受性1：CEZ <=2 S
+
+ここから報告：
+`;
 
 function normSir(s) {
   const t = String(s || '').normalize('NFKC').trim().toUpperCase();
@@ -362,6 +380,35 @@ function normSir(s) {
   if (/^R|耐/.test(t)) return 'R';
   if (/^I|中/.test(t)) return 'I';
   return '';
+}
+
+// 病院の AI の形（「菌1：…」「感受性1：ABPC >16 R」）を前の形の区切りにそろえる。
+// iPhone の文字読み取りは S を 5、I を 1 や l と読むことがある
+const ocrSir = (t) => (/^[S5$]$/i.test(t) ? 'S' : /^[I1l|]$/.test(t) ? 'I' : /^R$/i.test(t) ? 'R' : normSir(t));
+function cultureParts(line) {
+  let m;
+  if ((m = line.match(/^検体\s*[:：]?\s*(.*)$/))) return ['検体', m[1].trim()];
+  if ((m = line.match(/^グラム(?:染色)?\s*[:：]?\s*(.*)$/))) return ['グラム', m[1].trim()];
+  if ((m = line.match(/^感受性\s*(\d*)\s*[:：]?\s*(.+)$/))) {
+    const tk = m[2].trim().split(/\s+/);
+    const drug = tk[0];
+    if (!/[A-Za-z぀-ヿ一-鿿]/.test(drug)) return null;
+    const rest = tk.slice(1);
+    let mic = '';
+    let sir = '';
+    if (rest.length >= 2) { sir = ocrSir(rest[rest.length - 1]); mic = rest.slice(0, -1).join(' '); }
+    else if (rest.length === 1) { if (/^[SIR]$/i.test(rest[0])) sir = rest[0].toUpperCase(); else mic = rest[0]; }
+    return ['感受性', m[1] || '1', drug, mic, sir];
+  }
+  if ((m = line.match(/^菌\s*(\d*)\s*[:：]?\s*(.+)$/))) {
+    const body = m[2].trim();
+    const i = body.indexOf('菌量');
+    const name = (i >= 0 ? body.slice(0, i) : body).trim();
+    const amount = i >= 0 ? body.slice(i + 2).replace(/^\s*[:：]?\s*/, '').trim() : '';
+    if (!/[A-Za-z぀-ヿ一-鿿]/.test(name)) return null;
+    return ['菌', m[1] || '1', name, amount];
+  }
+  return null;
 }
 
 export function parseCultureText(text) {
@@ -373,11 +420,16 @@ export function parseCultureText(text) {
     return byNo.get(k);
   };
   const grams = [];
-  for (const raw of String(text).split(/\r?\n/)) {
-    const line = raw.normalize('NFKC').replace(/｜/g, '|').trim();
-    if (!line || line.startsWith('```') || /MEDPILOT/i.test(line)) continue;
-    if (!line.includes('|')) { out.skipped.push(raw); continue; }
-    const parts = line.split('|').map((x) => x.trim());
+  const lines = String(text).split(/\r?\n/).map((x) => x.normalize('NFKC').replace(/｜/g, '|').replace(/\*\*/g, '').trim());
+  const isStart = (l) => /^[【[]?med.{0,6}培養[】\]]?$/i.test(l.replace(/\s/g, ''));
+  const isEnd = (l) => /^[【[]?(お|終)わ[りリ][】\]]?$/.test(l.replace(/\s/g, ''));
+  let on = !lines.some(isStart);
+  for (const line of lines) {
+    if (isStart(line)) { on = true; continue; }
+    if (isEnd(line)) { on = false; continue; }
+    if (!on || !line || line.startsWith('```') || /MEDPILOT/i.test(line) || /^例\s*[:：)）]/.test(line)) continue;
+    const parts = line.includes('|') ? line.split('|').map((x) => x.trim()) : cultureParts(line);
+    if (!parts) { out.skipped.push(line); continue; }
     const key = parts[0];
     if (key === '検体') out.specimen = parts[1] || '';
     else if (/^グラム/.test(key)) { const g = parts.slice(1).filter(Boolean).join(' '); if (g) grams.push(g); }
@@ -389,9 +441,9 @@ export function parseCultureText(text) {
       o.name = name || o.name;
       o.amount = parts[3] || o.amount;
     } else if (key === '感受性') {
-      if (!parts[2]) { out.skipped.push(raw); continue; }
+      if (!parts[2]) { out.skipped.push(line); continue; }
       org(parts[1]).sens.push({ drug: parts[2], mic: parts[3] || '', sir: normSir(parts[4]) });
-    } else out.skipped.push(raw);
+    } else out.skipped.push(line);
   }
   out.gram = grams.join('／');
   out.organisms = [...byNo.values()]

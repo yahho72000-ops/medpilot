@@ -13,6 +13,7 @@ import { settingsScreen, tplEditScreen, labItemsScreen, notifySettingsScreen, fa
 import { lockScreen, setupScreen, lock } from './screens/lock.js';
 import { graphScreen } from './screens/graph.js';
 import { cultureImportScreen, cultureConfirmScreen } from './screens/culture.js';
+import { summaryImportScreen, summaryConfirmScreen, summaryActions } from './screens/summary.js';
 import { clinicalActions } from './clinical.js';
 import { nutritionActions } from './nutriUI.js';
 import { backupActions } from './backup.js';
@@ -22,7 +23,7 @@ import { changedSoon, changedNow, startNotify, flush } from './notify.js';
 const LOCK_AFTER_MS = 5 * 60 * 1000;
 
 register({
-  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, ...nutritionActions, ...backupActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
+  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, ...nutritionActions, ...backupActions, ...summaryActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
   menu: menuScreen,
   erList: erListScreen,
   erPatient: erPatientScreen,
@@ -44,6 +45,8 @@ register({
   handoff: handoffScreen,
   cultureImport: cultureImportScreen,
   cultureConfirm: cultureConfirmScreen,
+  summaryImport: summaryImportScreen,
+  summaryConfirm: summaryConfirmScreen,
   lock: lockScreen,
   setup: setupScreen,
 });

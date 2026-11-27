@@ -8,6 +8,7 @@ import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, 
 import * as ui from '../ui.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 import { nutritionBlock, memoRow } from '../nutriUI.js';
+import { summaryBlock, summaryButton } from './summary.js';
 
 function rowChips(p) {
   const out = [];
@@ -77,7 +78,17 @@ export const inListScreen = {
     },
     async moveUp(ds) { await move(ds.pid, -1); },
     async moveDown(ds) { await move(ds.pid, 1); },
-    goRegister(ds) { go('register', { to: ds.to }); },
+    async goRegister(ds) {
+      const v = await ui.choose('入院患者を登録', '', [
+        { v: 'plain', label: 'ふつうに登録', tone: 'btn' },
+        { v: 'summary', label: 'まとめカルテから登録', tone: 'btn2' },
+      ]);
+      if (v === 'plain') go('register', { to: ds.to });
+      if (v === 'summary') {
+        if (state.summaryDraft && state.summaryDraft.key !== 'new') state.summaryDraft = null;
+        go('summaryImport', { id: '' });
+      }
+    },
   },
 };
 
@@ -153,8 +164,10 @@ export const inPatientScreen = {
       ${pageTabs(2)}
       <div class="ppage">
       ${miniHead(p)}
+      ${summaryButton(p)}
       ${sec('Problem List', `<button class="mini" data-act="addProblem" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card plist">${problems || '<div class="muted small">まだありません</div>'}</div>
+      ${summaryBlock(p)}
       ${sec('最新の検査値')}
       ${labGrid(p)}
       <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>

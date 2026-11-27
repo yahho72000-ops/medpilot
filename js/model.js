@@ -197,6 +197,8 @@ export function newPatient(fields, templates) {
     oral: [],
     intake: {},
     handoffMemo: '',
+    summaryText: '',
+    summaryAt: null,
     daily: {},
     lastICDate: null,
     outlook: null,

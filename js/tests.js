@@ -9,6 +9,8 @@ import { buildMorning, newTopic } from './notify.js';
 import * as F from './nutrition.js';
 import { handoffItems, dayStart } from './handoff.js';
 import { makePayload, sealBackup, openBackup } from './backup.js';
+import * as S from './summary.js';
+import { labPrompt } from './labs.js';
 
 const results = [];
 const eq = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want });
@@ -371,6 +373,93 @@ async function run() {
   bkErr = '';
   try { await openBackup('{"hello":1}', 'x'); } catch (e) { bkErr = e.message; }
   ok('バックアップでないファイル', /バックアップファイルではありません/.test(bkErr));
+
+  // まとめカルテ（病院の AI の答えを iPhone で読み取ったもの。読み間違い・画面のほかの文字つき）
+  const favMeds = K.defaultFavMeds();
+  const sumLines = [
+    'Copilot に質問する',
+    '【MedPilot まとめ】',
+    '【プロフィール】',
+    '年齢：82歳', '性別：女', '体重：45.5kg', '入院日：2O26/11/02', '主病名：誤嚥性肺炎', 'CODE：DNAR',
+    '[プロブレム]', '#1 誤嚥性肺炎', '井2 心不全',
+    '【経過】', '既往：高血圧、脳梗塞', 'アレルギー：なし', '#1 CTRX で開始、11/6 発熱続き', 'MEPM に変更。解熱傾向。', '#2 利尿薬で調整中。',
+    '【薬】',
+    '抗菌薬 セフトリアキソン 開始 2026/11/02 終了 2026/11/05',
+    '抗菌薬 MEPM 開始 2026/11/06 予定 14日',
+    '昇圧 ノルアドレナリン 開始 2026/11/03 量 0.05y',
+    '鎮静 デクスメデトミジン 開始 2026/11/20 量 20µg/h',
+    '【培養】',
+    '2026/11/02 血液 2セット E. coli 耐性 ABPC LVFX',
+    '2026/11/02 尿 陰性',
+    '2026/11/24 喀痰 結果待ち',
+    '【デバイス】', 'CV 挿入 2026/11/03', '尿道カテーテル 挿入 2026/11/02',
+    '【栄養】', '経腸 ペプタメン AF 持続 40mL/h', '経口 嚥下食 2 糖尿病食',
+    '【IC】', '最終IC 2026/11/20',
+    '【予定】', '2026/11/30 CT 再検',
+    '【おわり】',
+    'メッセージを入力',
+  ];
+  const sumText = sumLines.join('\n');
+  const sr = S.parseSummaryText(sumText, { today: '2026-11-27', favMeds });
+  eq('まとめ：プロフィール', sr.profile, { ageBand: '80', sex: 'F', weight: 45.5, admitDate: '2026-11-02', disease: '誤嚥性肺炎', codeStatus: 'dnar' });
+  eq('まとめ：プロブレム（井→#）', sr.problems, ['誤嚥性肺炎', '心不全']);
+  eq('まとめ：経過（折り返しをつなぐ）', S.courseText(sr), '既往：高血圧、脳梗塞\nアレルギー：なし\n#1 CTRX で開始、11/6 発熱続きMEPM に変更。解熱傾向。\n#2 利尿薬で調整中。');
+  eq('まとめ：薬の名前をそろえる', sr.meds.map((m) => m.name), ['CTRX', 'MEPM', 'NAD', 'デクスメデトミジン']);
+  eq('まとめ：終了・予定・量（y→γ）', [sr.meds[0].end, sr.meds[1].planDays, sr.meds[2].dose, sr.meds[3].dose], ['2026-11-05', 14, { value: 0.05, unit: 'γ' }, { value: 20, unit: 'µg/h' }]);
+  eq('まとめ：培養', sr.cultures.map((c) => `${c.specimen}|${c.sets}|${c.result}|${c.organisms.map((o) => `${o.name}:${o.resistant.join(',')}`).join('/')}`), ['血液|2|positive|E. coli:ABPC,LVFX', '尿|null|negative|', '痰|null|pending|']);
+  eq('まとめ：デバイス・栄養・IC・予定', [sr.devices.map((d) => d.type), sr.feeds[0], sr.lastIC, sr.plans], [['CV', '尿カテ'], { route: 'en', mode: 'cont', ml: 40, name: 'ペプタメン AF' }, '2026-11-20', [{ date: '2026-11-30', label: 'CT 再検' }]]);
+  eq('まとめ：経口を形態と治療食に', S.resolveOral(sr.oral, {}), { npo: false, form: '嚥下食2', diet: '糖尿病食' });
+  ok('まとめ：最後まで読めた・画面のほかの文字は無視', sr.complete && !sr.skipped.length);
+  // テンプレートの文まで読み取ってしまっても、見本の行は入らない
+  const withTpl = S.parseSummaryText(`${S.summaryPrompt({})}\n${sumText}`, { today: '2026-11-27', favMeds });
+  eq('まとめ：テンプレートの文があっても同じ', [withTpl.problems.length, withTpl.meds.length, withTpl.cultures.length, withTpl.plans.length, withTpl.skipped.length], [2, 4, 3, 1, 0]);
+  // 2回に分けて貼った（重なりあり）
+  const part1 = sumLines.slice(0, 21).join('\n');
+  const part2 = sumLines.slice(16).join('\n');
+  const twice = S.parseSummaryText(`${part1}\n${part2}`, { today: '2026-11-27', favMeds });
+  eq('まとめ：重ねて貼っても1つずつ', [twice.problems.length, twice.course.length, twice.meds.length, twice.cultures.length, twice.complete, twice.skipped.length], [2, 2, 4, 3, true, 0]);
+  const noEnd = S.parseSummaryText(sumLines.slice(0, 21).join('\n'), { today: '2026-11-27', favMeds });
+  ok('まとめ：【おわり】がないと「まだ」', !noEnd.complete && noEnd.meds.length === 2);
+  eq('まとめ：年のない日付は過去に', S.findDate('12/20 提出', '2026-11-27').date, '2025-12-20');
+  eq('まとめ：予定の日付は先に', S.findDate('1/5 CT', '2026-11-27', 'future', true).date, '2027-01-05');
+
+  // 登録してある患者に入れる
+  const sNow = new Date(2026, 10, 27, 10, 0).getTime();
+  const sMeta = { favMeds, favFeeds: F.defaultFavFeeds(), diet: { forms: F.DEFAULT_DIET_FORMS, types: F.DEFAULT_DIET_TYPES } };
+  const sp = M.newPatient({ code: 'SUMM', location: 'inpatient', ageBand: '70', admitDate: '2026-11-02' }, tpl);
+  sp.problems = ['誤嚥性肺炎'];
+  const sItems = S.buildItems(sr, sp, sMeta, sNow);
+  const age = sItems.find((it) => it.sec === 'profile' && /年代/.test(it.text));
+  ok('まとめ：違う年代は最初はチェックなし（今の値を表示）', age && !age.on && age.note === '今：70代');
+  ok('まとめ：同じプロブレムは「すでにあります」', sItems.find((it) => it.sec === 'problems' && it.text === '誤嚥性肺炎').dup);
+  eq('まとめ：γ と µg/h を mL/h に直す', sItems.filter((it) => it.sec === 'meds').map((it) => it.note), ['', '', '1.4mL/h として入れます', '5mL/h として入れます']);
+  const sPicked = new Set(sItems.filter((it) => it.on).map((it) => it.id));
+  const sN = S.applyItems(sp, sItems, sPicked, { course: S.courseText(sr), now: sNow });
+  ok('まとめ：入れた数', sN === sPicked.size + 1);
+  eq('まとめ：入れたあとの患者', [sp.ageBand, sp.sex, sp.weight, sp.codeStatus, sp.problems, sp.lastICDate], ['70', 'F', 45.5, 'dnar', ['誤嚥性肺炎', '心不全'], '2026-11-20']);
+  const sNad = sp.meds.find((m) => m.name === 'NAD');
+  eq('まとめ：薬（終了・流量・組成）', [sp.meds.length, sp.meds[0].end, sNad.rates[0].ml, sNad.conc.amount, K.medDay(sp.meds[1], '2026-11-27')], [4, '2026-11-05', 1.4, 5, 22]);
+  eq('まとめ：培養の段階', sp.cultures.map((c) => `${c.stage}|${c.due}`), ['done|null', 'negative|null', 'submitted|2026-11-27']);
+  eq('まとめ：耐性は R として', K.resistant(sp.cultures[0].organisms[0]), ['ABPC', 'LVFX']);
+  eq('まとめ：栄養・経口・予定', [Math.round(F.kcalDay(sp.feeds[0], F.feedAt(sp.feeds[0], sNow))), F.oralText(F.oralNow(sp)), sp.tasks.map((t) => `${t.dueDate}|${t.label}|${t.group}`)], [1440, '嚥下食2 ・ 糖尿病食', ['2026-11-30|CT 再検|inpatient']]);
+  ok('まとめ：経過のまとめ', /^既往：高血圧/.test(sp.summaryText) && sp.summaryAt === sNow);
+  const sHo = handoffItems(sp, [], sNow);
+  ok('まとめ：読み込んだものは今日の申し送りの「介入」に出さない', !sHo.acts.length);
+  const again = S.buildItems(sr, sp, sMeta, sNow).filter((it) => it.sec !== 'profile');
+  ok('まとめ：2回目は全部「すでにあります」', again.every((it) => it.dup || !it.on));
+  const unknownFeed = S.buildItems(S.parseSummaryText('【栄養】\n経腸 ラコール 持続 20mL/h', { today: '2026-11-27' }), sp, sMeta, sNow);
+  ok('まとめ：よく使う栄養にないものは入れられない', unknownFeed.length === 1 && unknownFeed[0].off && !unknownFeed[0].apply);
+
+  // 検査値・培養（病院の AI の形）
+  const lt = '【MedPilot 検査】\n日付 2026/11/25 2026/11/26\nWBC 12.3H 10.1 H\nCRP 15.20H ー\nyGTP 4O 52H\n【おわり】';
+  const lr = parseLabText(lt, '2026-11-27');
+  eq('検査値（病院の AI の形）', lr.rows.map((r) => `${r.date}|${r.name}|${r.value}|${r.flag}`), ['2026-11-25|WBC|12.3|H', '2026-11-26|WBC|10.1|H', '2026-11-25|CRP|15.20|H', '2026-11-25|γGTP|40|', '2026-11-26|γGTP|52|H']);
+  eq('検査値：テンプレートの文があっても同じ', parseLabText(`${labPrompt(defaultLabItems())}\n${lt}`, '2026-11-27').rows.length, 5);
+  const ct2 = '【MedPilot 培養】\n検体：血液\nグラム：GNR\n菌1：Escherichia coli 菌量 3+\n感受性1：ABPC >16 R\n感受性1：CEZ <=2 5\n感受性1：LVFX 1\n【おわり】';
+  const cr2 = K.parseCultureText(ct2);
+  eq('培養（病院の AI の形）', [cr2.specimen, cr2.gram, cr2.organisms[0].name, cr2.organisms[0].amount, cr2.organisms[0].sens.map((x) => `${x.drug}|${x.mic}|${x.sir}`)], ['血液', 'GNR', 'Escherichia coli', '3+', ['ABPC|>16|R', 'CEZ|<=2|S', 'LVFX|1|']]);
+  eq('培養：テンプレートの文があっても同じ', K.parseCultureText(`${K.CULTURE_PROMPT}\n${ct2}`).organisms.map((o) => o.sens.length), [3]);
+  eq('培養 陰性（病院の AI の形）', K.parseCultureText('【MedPilot 培養】\n検体：尿\n菌：陰性\n【おわり】').negative, true);
 
   const pass = results.filter((r) => r.ok).length;
   const lines = results.map((r) => `${r.ok ? 'OK ' : 'NG '} ${r.name}${r.ok ? '' : `\n     got:  ${JSON.stringify(r.got)}\n     want: ${JSON.stringify(r.want)}`}`);

@@ -351,3 +351,12 @@ button.chip { cursor: pointer; }
 /* アプリを切り替えたときに画面を隠す */
 #privacy { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 100; color: var(--brand); font-weight: 700; font-size: 1.8rem; }
 body.private #privacy { display: flex; }
+
+/* まとめカルテ（0.7.0） */
+.ck-list { gap: 2px; }
+.ck-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.ck-row:last-child { border-bottom: none; }
+.ck-row input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 22px; margin-top: 1px; accent-color: var(--btn-bg); }
+.ck-row.off { opacity: .55; }
+.ck-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sum-text { white-space: pre-wrap; line-height: 1.55; }

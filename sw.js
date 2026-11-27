@@ -1,7 +1,7 @@
 // オフラインでも動くように、アプリ本体を iPhone に保存しておく仕組み
 // アプリを更新したら VERSION を上げる（開いたときに自動で入れ替わる）
 
-const VERSION = 'medpilot-0.6.0';
+const VERSION = 'medpilot-0.7.0';
 const FILES = [
   './',
   './index.html',
@@ -34,6 +34,8 @@ const FILES = [
   './js/screens/inpatient.js',
   './js/screens/lab.js',
   './js/screens/culture.js',
+  './js/screens/summary.js',
+  './js/summary.js',
   './js/screens/graph.js',
   './js/screens/handoff.js',
   './js/screens/followup.js',

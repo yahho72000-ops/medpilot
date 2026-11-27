@@ -18,6 +18,7 @@ export const state = {
   meta: {},
   patients: [],
   labDraft: null,
+  summaryDraft: null,
 };
 
 // 通知（ntfy）の設定。timers はタイマーの最初の時間（分、0 はなし）
