@@ -28,6 +28,7 @@ export function hospitalSteps(kind, what) {
   const t = TEMPLATES[kind];
   return `${step(1, '病院の AI でテンプレートを使う', `<div>病院の AI でテンプレート「${esc(t.tag)}」を選び、その下に${esc(what)}の文章を貼って送ります。</div><button class="btn2" data-act="showTemplate" data-k="${kind}">テンプレートの文を見る・コピー</button>`)}
     ${step(2, 'AI の答えを iPhone で読み取る', `<div>iPhone のカメラを PC の画面に向けて、右下の文字のマーク（テキスト認識表示）を押します。答えの部分（【${esc(t.tag)}】から【おわり】まで）を選んで「コピー」。</div>
+      <div class="muted small">PC の画面の文字を大きくしてから（Ctrl を押しながら ＋）読み取ると、小数点の読み落としが減ります。</div>
       <div class="muted small">写真は撮らなくて大丈夫です。撮ったときは、貼ったあと写真を消してください。</div>
       <div class="warn-a small">テンプレートの文やカルテの部分までは選ばないでください。</div>`)}`;
 }
