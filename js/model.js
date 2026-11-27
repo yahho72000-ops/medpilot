@@ -13,7 +13,7 @@ export const DEFAULT_TEMPLATES = {
     { label: 'コンサルト', kind: 'consult', steps: 3 },
     { label: '家族IC', kind: 'ic', steps: 2 },
   ],
-  admit: ['入院決定', '診療計画書', '翌日以降の採血オーダー', 'リハビリオーダー', '持参薬確認', '食事オーダー', '安静度', 'CODEの確認', '紹介元への返書'],
+  admit: ['入院決定', '診療計画書', '翌日以降の採血オーダー', '翌日以降のXpオーダー', 'リハビリオーダー', '持参薬確認', '食事オーダー', '安静度', 'CODEの確認', '紹介元への返書'],
   home: ['処方', '次回受診の案内', '紹介状'],
   transfer: ['紹介状', '画像CD', '転院先への連絡', '搬送の手配'],
   death: ['死亡診断書'],
@@ -55,7 +55,7 @@ export const GROUP_TITLES = {
 export const DEVICE_TYPES = ['CV', 'Aライン', '尿カテ', '胃管', 'ドレーン', '挿管チューブ'];
 
 // 病棟（選択肢）と病室（数字）
-export const WARDS = ['2E', '2W', '3E', '3W', '4E', '4W', '5E', '5W', '6E', '6W', '7W', 'ER'];
+export const WARDS = ['2E', '2W', '3E', '3W', '4E', '4W', '5E', '5W', '6E', '6W', '7W', 'ICU', 'HCU2', 'HCU1', 'ER'];
 export function bedLabel(ward, room) {
   if (!ward) return room || '';
   return room ? `${ward}-${room}` : ward;
@@ -248,10 +248,34 @@ export function setBloodDays(p, dates, key = dayKey()) {
 }
 
 // 入院の手続きの「翌日以降の採血オーダー」を済にする（採血の日を選んだとき）
+export const isAdmitBlood = (t) => t.group === 'admit' && /採血/.test(t.label);
 export function markAdmitBlood(p) {
-  const t = (p.tasks || []).find((x) => x.group === 'admit' && /採血/.test(x.label) && isOpen(x));
+  const t = (p.tasks || []).find((x) => isAdmitBlood(x) && isOpen(x));
   if (t) setState(t, 'done');
   return !!t;
+}
+
+// Xp（0.8.1〜）：入院の手続きの「翌日以降のXpオーダー」から日を選ぶと、日ごとに「Xp」のタスク（オーダー済）を作る
+export const XP_LABEL = 'Xp';
+export const isXpName = (s) => /^(Xp|XP|X線|レントゲン)/.test(String(s || '').normalize('NFKC').trim());
+export const isAdmitXp = (t) => t.group === 'admit' && !/採血/.test(t.label) && /Xp|XP|X線|レントゲン/.test(String(t.label).normalize('NFKC'));
+export const xpDatesFrom = (p, key = dayKey()) => [...new Set((p.tasks || []).filter((t) => t.group !== 'admit' && isXpName(t.label) && isOpen(t) && t.dueDate && t.dueDate >= key).map((t) => t.dueDate))].sort();
+export function markAdmitXp(p) {
+  const t = (p.tasks || []).find((x) => isAdmitXp(x) && isOpen(x));
+  if (t) setState(t, 'done');
+  return !!t;
+}
+
+// 同じ名前の日付つきタスクの日を決め直す（外した日の分は消す・足した日の分は作る）。消したタスクを返す
+export function setTaskDates(p, { label, steps = 3, kind = 'image', group = 'inpatient', dates = [], match }, key = dayKey()) {
+  const same = match || ((t) => t.label === label);
+  const hit = (t) => t.group !== 'admit' && same(t) && isOpen(t) && t.dueDate && t.dueDate >= key;
+  const cur = new Set(p.tasks.filter(hit).map((t) => t.dueDate));
+  const keep = new Set(dates);
+  const removed = p.tasks.filter((t) => hit(t) && !keep.has(t.dueDate));
+  p.tasks = p.tasks.filter((t) => !removed.includes(t));
+  addDatedTasks(p, { label, steps, kind, group, dates: dates.filter((d) => d >= key && !cur.has(d)) });
+  return removed;
 }
 
 // 日付つきのタスクを何日分か作る。3段階のものは「オーダー済（結果待ち）」から始める
@@ -410,8 +434,9 @@ export function admitNow(p, templates, { ward, room, date }) {
   p.location = 'inpatient';
   p.admitDate = date || today();
   p.ending = null;
-  // 先に採血の日を選んであれば「翌日以降の採血オーダー」は済
+  // 先に採血・Xp の日を選んであれば「翌日以降の採血オーダー」「翌日以降のXpオーダー」は済
   if (bloodDaysFrom(p).length) markAdmitBlood(p);
+  if (xpDatesFrom(p).length) markAdmitXp(p);
 }
 
 export function moveToInpatient(p) {

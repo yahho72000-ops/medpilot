@@ -183,10 +183,13 @@ async function addInpatientTask(p) {
   const kind = M.taskKind(r.label);
   if (r.dates) M.addDatedTasks(p, { label: r.label, steps: r.steps, kind, group: 'inpatient', dates: r.dates });
   else p.tasks.push(M.newTask({ label: r.label, steps: r.steps, kind, group: 'inpatient' }));
+  // Xp の日を選んだら、入院の手続きの「翌日以降のXpオーダー」も済
+  const admitXp = !!r.dates && M.isXpName(r.label) && M.markAdmitXp(p);
   await remember('tasks', r.label);
   await savePatient(p);
   render();
-  if (r.dates) ui.toast(`${r.label}：${r.dates.map(md).join('・')}`);
+  if (r.dates) ui.toast(`${r.label}：${r.dates.map(md).join('・')}${admitXp ? '（入院の手続きも済）' : ''}`);
+  if (admitXp && M.progress(p)) await afterChange(p);
 }
 
 // 採血の日を選び直す。admitTask があれば（入院の手続きの採血）、日を選ぶとその手続きは済
@@ -209,6 +212,36 @@ async function editBloodDays(p, admitTask = null) {
     p.bloodDays = before.days;
     p.daily = before.daily;
     if (admitTask) { admitTask.state = before.admit[0]; admitTask.doneAt = before.admit[1]; }
+    await savePatient(p);
+    render();
+  });
+  if (M.progress(p)) await afterChange(p);
+  return 'done';
+}
+
+// Xp の日を選び直す（入院の手続きの「翌日以降のXpオーダー」から）。日を選ぶとその手続きは済
+async function editXpDays(p, admitTask) {
+  const key = dayKey();
+  const v = await datesSheet(admitTask.label, M.xpDatesFrom(p, key), {
+    note: '選んだ日ごとに「Xp」のタスクを「オーダー済（結果待ち）」で作ります。',
+    extra: [['__done', '日を選ばずに済にする'], ['__more', 'ほかの操作（名前・削除など）']],
+  });
+  if (v === null || v === undefined) return 'cancel';
+  if (v === '__more') return 'more';
+  const before = { tasks: p.tasks.slice(), admit: [admitTask.state, admitTask.doneAt] };
+  if (v === '__done') M.setState(admitTask, 'done');
+  else {
+    const removed = M.setTaskDates(p, { label: M.XP_LABEL, steps: 3, kind: 'image', group: 'inpatient', dates: v, match: (t) => M.isXpName(t.label) }, key);
+    for (const t of removed) if (t.timer) await N.clearTaskTimer(t);
+    if (v.length) M.setState(admitTask, 'done');
+  }
+  await savePatient(p);
+  render();
+  const msg = v === '__done' ? `${admitTask.label}：済` : v.length ? `Xp：${v.map(md).join('・')}` : 'Xp の予定を消しました';
+  ui.toast(msg, async () => {
+    p.tasks = before.tasks;
+    admitTask.state = before.admit[0];
+    admitTask.doneAt = before.admit[1];
     await savePatient(p);
     render();
   });
@@ -327,8 +360,13 @@ export const patientActions = {
     const t = T(p, ds);
     if (!t) return;
     // 入院の手続きの「翌日以降の採血オーダー」：採血の日を選ぶカレンダーを開く
-    if (t.group === 'admit' && /採血/.test(t.label) && M.isOpen(t) && p.location === 'inpatient') {
+    if (M.isAdmitBlood(t) && M.isOpen(t) && p.location === 'inpatient') {
       const r = await editBloodDays(p, t);
+      if (r !== 'more') return;
+    }
+    // 「翌日以降のXpオーダー」：Xp の日を選ぶカレンダーを開く
+    if (M.isAdmitXp(t) && M.isOpen(t) && p.location === 'inpatient') {
+      const r = await editXpDays(p, t);
       if (r !== 'more') return;
     }
     const states = M.stateChoices(t).map(([k, l]) => ({ v: `s:${k}`, label: l, tone: k === t.state ? 'btn' : 'btn2' }));

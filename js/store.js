@@ -35,6 +35,22 @@ const META_KEYS = ['security', 'settings', 'templates', 'labItems', 'history', '
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
+// 保存してあるひな形に、あとから増えた項目を1回だけ足す（消した人にはもう足さない）
+export function upgradeTemplates(tpl, settings) {
+  const done = settings.upgrades || (settings.upgrades = []);
+  let changed = false;
+  if (!done.includes('admitXp')) {
+    const list = tpl.admit || (tpl.admit = []);
+    if (!list.some((x) => /Xp|X線|レントゲン/.test(x))) {
+      const i = list.findIndex((x) => /採血/.test(x));
+      list.splice(i >= 0 ? i + 1 : list.length, 0, '翌日以降のXpオーダー');
+    }
+    done.push('admitXp');
+    changed = true;
+  }
+  return changed;
+}
+
 export async function init() {
   state.mainDb = await openDB(MAIN_DB);
   for (const k of META_KEYS) state.meta[k] = await get(state.mainDb, 'meta', k);
@@ -42,6 +58,7 @@ export async function init() {
   const n = state.meta.settings.notify || {};
   state.meta.settings.notify = { ...DEFAULT_NOTIFY, ...n, timers: { ...DEFAULT_NOTIFY.timers, ...(n.timers || {}) } };
   if (!state.meta.templates) state.meta.templates = clone(DEFAULT_TEMPLATES);
+  else if (upgradeTemplates(state.meta.templates, state.meta.settings)) { await saveMeta('templates'); await saveMeta('settings'); }
   if (!state.meta.labItems) {
     // 検査項目は ID で検査値とつながるので、最初に作ったものをすぐ保存する
     state.meta.labItems = defaultLabItems();

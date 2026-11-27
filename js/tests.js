@@ -10,6 +10,7 @@ import * as F from './nutrition.js';
 import { handoffItems, dayStart } from './handoff.js';
 import { makePayload, sealBackup, openBackup } from './backup.js';
 import * as S from './summary.js';
+import { upgradeTemplates } from './store.js';
 import { labPrompt } from './labs.js';
 
 const results = [];
@@ -44,7 +45,7 @@ async function run() {
   eq('ER 基本リスト 5 件', p.tasks.length, 5);
   eq('最初の残り', M.openCount(p), 5);
   M.applyEnding(p, 'admit_er', tpl);
-  eq('入院リスト 9 件追加', p.tasks.filter((t) => t.group === 'admit').length, 9);
+  eq('入院リスト 10 件追加', p.tasks.filter((t) => t.group === 'admit').length, 10);
   p.tasks.filter((t) => t.group === 'admit').forEach((t) => M.setState(t, 'done'));
   eq('入院手続きが終われば入院患者へ', M.progress(p), 'toInpatient');
   M.moveToInpatient(p);
@@ -55,7 +56,7 @@ async function run() {
   M.setState(ad.tasks[0], 'ordered');
   M.admitNow(ad, tpl, { ward: '5E', room: '512', date: '2026-11-27' });
   eq('入院決定ですぐ入院患者へ', [ad.location, ad.admitDate, ad.bed], ['inpatient', '2026-11-27', '5E-512']);
-  eq('入院の手続きが追加される', ad.tasks.filter((t) => t.group === 'admit' && M.isOpen(t)).length, 9);
+  eq('入院の手続きが追加される', ad.tasks.filter((t) => t.group === 'admit' && M.isOpen(t)).length, 10);
   eq('ERの結果待ちは引き継ぐ', ad.tasks[0].state, 'ordered');
   eq('入院後は終わり方なし', [ad.ending, M.progress(ad)], [null, null]);
 
@@ -493,6 +494,31 @@ async function run() {
   ok('朝のまとめに今日の採血', /今日の採血：1人（BLD1）/.test(bm.message));
   const bh = handoffItems(bp, [], Date.now());
   ok('申し送り：3日以内の採血と Xp', bh.todo.some((x) => /血液検査$/.test(x)) && bh.todo.some((x) => /Xp$/.test(x)));
+
+  // 0.8.1：病棟・入院の手続きの Xp
+  ok('病棟に ICU・HCU2・HCU1', ['ICU', 'HCU2', 'HCU1'].every((w) => M.WARDS.includes(w)));
+  ok('Xp の名前', M.isXpName('Xp') && M.isXpName('X線') && M.isXpName('ＸＰ') && !M.isXpName('CT'));
+  const xa = M.newPatient({ code: 'XPA1', location: 'er' }, tpl);
+  M.admitNow(xa, { admit: ['翌日以降の採血オーダー', '翌日以降のXpオーダー'] }, { ward: 'ICU', room: '3' });
+  const xt = xa.tasks.find(M.isAdmitXp);
+  ok('入院の手続きに Xp（採血とは別）', xt && xt.label === '翌日以降のXpオーダー' && !M.isAdmitXp(xa.tasks.find(M.isAdmitBlood)) && xt.state === 'todo');
+  eq('ICU の病室', xa.bed, 'ICU-3');
+  const xpMatch = (t) => M.isXpName(t.label);
+  M.setTaskDates(xa, { label: 'Xp', dates: [addDays(bk, 1), addDays(bk, 3)], match: xpMatch }, bk);
+  eq('Xp の日', M.xpDatesFrom(xa, bk), [addDays(bk, 1), addDays(bk, 3)]);
+  ok('Xp はオーダー済で作る', xa.tasks.filter(xpMatch).every((t) => t.state === 'ordered' && t.steps === 3));
+  const xRemoved = M.setTaskDates(xa, { label: 'Xp', dates: [addDays(bk, 3), addDays(bk, 4)], match: xpMatch }, bk);
+  eq('Xp の日を選び直す', [M.xpDatesFrom(xa, bk), xRemoved.length], [[addDays(bk, 3), addDays(bk, 4)], 1]);
+  ok('Xp の日を選ぶと手続きは済', M.markAdmitXp(xa) && xt.state === 'done');
+  const xb = M.newPatient({ code: 'XPB1', location: 'er' }, tpl);
+  M.addDatedTasks(xb, { label: 'Xp', steps: 3, kind: 'image', group: 'er', dates: [addDays(bk, 1)] });
+  M.admitNow(xb, { admit: ['翌日以降のXpオーダー'] }, { ward: 'HCU1', room: '2' });
+  ok('先に Xp の日があれば入院のときに済', xb.tasks.find(M.isAdmitXp).state === 'done');
+  const tplOld = { admit: ['入院決定', '翌日以降の採血オーダー', 'リハビリオーダー'] };
+  const setOld = {};
+  ok('保存したひな形に Xp を1回だけ足す', upgradeTemplates(tplOld, setOld) && tplOld.admit[2] === '翌日以降のXpオーダー');
+  tplOld.admit.splice(2, 1);
+  ok('消したらもう足さない', !upgradeTemplates(tplOld, setOld) && !tplOld.admit.some((x) => /Xp/.test(x)));
 
   const pass = results.filter((r) => r.ok).length;
   const lines = results.map((r) => `${r.ok ? 'OK ' : 'NG '} ${r.name}${r.ok ? '' : `\n     got:  ${JSON.stringify(r.got)}\n     want: ${JSON.stringify(r.want)}`}`);
