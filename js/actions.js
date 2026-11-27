@@ -112,7 +112,7 @@ async function taskSheet(p, { title = 'タスクを追加', withDate = false, de
     <input id="sheet-input" type="text" autocomplete="off" placeholder="例：喀痰培養の提出">
     ${sug.length ? `<div class="chips-row">${sug.slice(0, 12).map((s) => `<button class="pill" data-act="sheetSuggest" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}
     <div class="lbl">段階</div>
-    <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 結果 → 確認</button></div>
+    <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 確認</button></div>
     ${withDate ? `<label class="lbl" for="sheet-date">日付（予定・期限）</label><input id="sheet-date" type="date" value="${esc(defaultDate)}">` : ''}
     <div class="warn-a small">${TASK_NAME_NOTE}</div>
     <div class="err" id="sheet-err"></div>
@@ -131,7 +131,7 @@ function taskSheetMulti() {
     <div class="chips-row">${chips}</div>
     <div id="ts-blood" class="card small hidden">選んだ日の「今日の採血」が「あり（確認未）」になります（タスクにはなりません）。</div>
     <div id="ts-steps"><div class="lbl">段階</div>
-      <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 結果 → 確認</button></div></div>
+      <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 確認</button></div></div>
     <div class="lbl">日付</div>
     <div class="seg" data-pick="when"><button class="on" data-act="pick" data-v="today">今日</button><button data-act="pick" data-v="dates">日付を選ぶ（何日でも）</button></div>
     <div id="ts-cal" class="hidden">${calendarHtml([])}<div class="muted small" id="ts-cal-note">3段階のものは「オーダー済（結果待ち）」から始まります。</div></div>
@@ -380,6 +380,7 @@ export const patientActions = {
     if (v.startsWith('s:')) {
       const s = v.slice(2);
       if (s === t.state) return;
+      const before = { state: t.state, doneAt: t.doneAt, ic: p.lastICDate };
       M.setState(t, s);
       if (t.kind === 'ic' && s === 'done') p.lastICDate = ymd();
       // タイマー：オーダー済（依頼済）で予約、確認済・なし・未で取り消す
@@ -402,7 +403,13 @@ export const patientActions = {
         ui.toast(msg, () => changeTimer(p, t), t.timer ? '変更' : 'タイマー');
         return;
       }
-      ui.toast(`${t.label}：${M.stateInfo(t).text}`);
+      ui.toast(`${t.label}：${M.stateInfo(t).text}`, async () => {
+        t.state = before.state;
+        t.doneAt = before.doneAt;
+        p.lastICDate = before.ic;
+        await savePatient(p);
+        render();
+      });
       return;
     }
     if (v === 'timer') {
@@ -474,6 +481,54 @@ export const patientActions = {
 
   dateOk() {
     ui.resolveSheet($('#sheet-date').value || '');
+  },
+
+  // ---- 回診・今日の採血（患者ページと残りTODOのページから） ----
+  async tapDaily(ds) {
+    const p = P(ds);
+    const d = M.dailyGet(p);
+    const isVisit = ds.f === 'visit';
+    const opts = isVisit
+      ? [['todo', '未'], ['done', '済']]
+      : Object.entries(M.BLOOD).map(([k, b]) => [k, b.text]);
+    const cur = d[ds.f];
+    const v = await ui.choose(isVisit ? '回診' : '今日の採血', '', opts.map(([k, l]) => ({ v: k, label: l, tone: k === cur ? 'btn' : 'btn2' })));
+    if (!v || v === cur) return;
+    M.dailySet(p, ds.f, v);
+    await savePatient(p);
+    render();
+    ui.toast(`${isVisit ? '回診' : '今日の採血'}：${opts.find(([k]) => k === v)[1]}`, async () => { M.dailySet(p, ds.f, cur); await savePatient(p); render(); });
+  },
+
+  // ---- 残りTODOのページの家族IC・デバイス ----
+  async todoIc(ds) {
+    const p = P(ds);
+    const v = await ui.choose('家族IC', `前回から ${M.icDays(p)}日たっています`, [
+      { v: 'today', label: '今日した', tone: 'btn' },
+      { v: 'open', label: '患者のページを開く', tone: 'btn2' },
+    ]);
+    if (v === 'open') return openPatient(p);
+    if (v !== 'today') return;
+    const before = p.lastICDate;
+    p.lastICDate = ymd();
+    await savePatient(p);
+    render();
+    ui.toast('家族IC：今日にしました', async () => { p.lastICDate = before; await savePatient(p); render(); });
+  },
+  async todoDevice(ds) {
+    const p = P(ds);
+    const d = (p.devices || []).find((x) => x.id === ds.did);
+    if (!d) return;
+    const v = await ui.choose(d.type, `留置${M.deviceDay(d)}日目`, [
+      { v: 'out', label: '今日抜去した', tone: 'btn' },
+      { v: 'open', label: '患者のページを開く', tone: 'btn2' },
+    ]);
+    if (v === 'open') return openPatient(p);
+    if (v !== 'out') return;
+    d.removedDate = ymd();
+    await savePatient(p);
+    render();
+    ui.toast(`${d.type}を抜去にしました`, async () => { d.removedDate = null; await savePatient(p); render(); });
   },
 
   // ---- 入院患者のタスク（何日でも）・採血の日 ----

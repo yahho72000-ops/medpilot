@@ -12,10 +12,11 @@ import { wardRoomFields } from '../actions.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 import { nutritionBlock, memoRow } from '../nutriUI.js';
 import { summaryBlock, summaryButton, applyDraftToNew, draftProfile } from './summary.js';
+import { listTabs, todoView, viewActions } from './todo.js';
 
 // ---- 一覧 ----
 export const erListScreen = {
-  render() {
+  render(params = {}) {
     const list = M.sortEr(state.patients.filter((p) => p.location === 'er'));
     const cards = list
       .map((p) => {
@@ -29,14 +30,21 @@ export const erListScreen = {
         </button>`;
       })
       .join('');
+    const todo = params.view === 'todo' && list.length;
     return `${header(`救急外来　${list.length}人`, 'メニュー')}
-      ${list.length ? '<div class="muted small">並び：タスクが多い順</div>' : ''}
+      ${list.length ? listTabs(params.view, M.remainingCount(list)) : ''}
+      <div class="ppage">
+      ${todo
+        ? todoView(list, (p) => `${p.visitDate.slice(5).replace('-', '/')} 来院`)
+        : `${list.length ? '<div class="muted small">並び：タスクが多い順</div>' : ''}
       ${cards || emptyState('救急外来の患者はいません')}
-      ${list.length ? '<div class="muted small">赤＝まだ　黄＝待ち　グレー＝済・なし</div>' : ''}
-      <div class="bottom-space"></div>
-      <div class="fixed-bottom grid2 two-btn"><button class="btn" data-act="quickRegister">すぐ登録</button><button class="btn2 solid" data-act="goRegister" data-to="er">＋ 詳しく登録</button></div>`;
+      ${list.length ? '<div class="muted small">赤＝まだ　黄＝待ち　グレー＝済・なし</div>' : ''}`}
+      </div>
+      ${todo ? '' : `<div class="bottom-space"></div>
+      <div class="fixed-bottom grid2 two-btn"><button class="btn" data-act="quickRegister">すぐ登録</button><button class="btn2 solid" data-act="goRegister" data-to="er">＋ 詳しく登録</button></div>`}`;
   },
   actions: {
+    ...viewActions,
     goRegister(ds) { go('register', { to: ds.to }); },
     // あだ名とブース番号だけで登録して、すぐタスクを始める（空でも可）
     async quickRegister() {

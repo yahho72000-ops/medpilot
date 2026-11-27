@@ -1,7 +1,7 @@
 // 患者とタスクの決まりごと（画面に依存しない部分）
 
 import { uuid, ymd, dayKey, diffDays, addDays } from './util.js';
-import { openCultures, clinicalCount, endOpenMeds } from './meds.js';
+import { openCultures, clinicalCount, endOpenMeds, todayClinical, cultureTitle, medFinalLabel } from './meds.js';
 import { endOpenFeeds } from './nutrition.js';
 
 // ---- ひな形（設定で編集できる。ここは最初の値） ----
@@ -55,7 +55,7 @@ export const GROUP_TITLES = {
 export const DEVICE_TYPES = ['CV', 'Aライン', '尿カテ', '胃管', 'ドレーン', '挿管チューブ'];
 
 // 病棟（選択肢）と病室（数字）
-export const WARDS = ['2E', '2W', '3E', '3W', '4E', '4W', '5E', '5W', '6E', '6W', '7W', 'ICU', 'HCU2', 'HCU1', 'ER'];
+export const WARDS = ['ICU', 'HCU2', 'HCU1', '2E', '2W', '3E', '3W', '4E', '4W', '5E', '5W', '6E', '6W', '7W', 'ER'];
 export function bedLabel(ward, room) {
   if (!ward) return room || '';
   return room ? `${ward}-${room}` : ward;
@@ -94,19 +94,22 @@ export function newTask({ label, steps = 2, kind = 'free', group = 'er', dueDate
   return { id: uuid(), label, steps: steps === 3 ? 3 : 2, kind, group, state: 'todo', dueDate, createdAt: Date.now(), doneAt: null };
 }
 
-const ORDER = { 3: ['todo', 'ordered', 'resulted', 'done'], 2: ['todo', 'done'] };
+// 3段階：未 → オーダー済（結果待ち）→ 確認済（0.9.0 で「結果あり（確認待ち）」はなくした。古い 'resulted' はオーダー済として扱う）
+const ORDER = { 3: ['todo', 'ordered', 'done'], 2: ['todo', 'done'] };
+export const STEP_TOTAL = (t) => (ORDER[t.steps] || ORDER[2]).length - 1;
+const stateOf = (t) => (t.state === 'resulted' ? 'ordered' : t.state);
 
 export function nextState(t) {
   if (t.state === 'none') return 'todo';
   const o = ORDER[t.steps] || ORDER[2];
-  const i = o.indexOf(t.state);
+  const i = o.indexOf(stateOf(t));
   return i >= 0 && i < o.length - 1 ? o[i + 1] : t.state;
 }
 
 export function prevState(t) {
   if (t.state === 'none') return 'todo';
   const o = ORDER[t.steps] || ORDER[2];
-  const i = o.indexOf(t.state);
+  const i = o.indexOf(stateOf(t));
   return i > 0 ? o[i - 1] : t.state;
 }
 
@@ -124,7 +127,6 @@ export function stateChoices(t) {
     return [
       ['todo', '未'],
       ['ordered', consult ? '依頼済（返事待ち）' : 'オーダー済（結果待ち）'],
-      ['resulted', consult ? '返事あり（確認待ち）' : '結果あり（確認待ち）'],
       ['done', '確認済'],
       ['none', 'なし'],
     ];
@@ -138,8 +140,8 @@ export function stateInfo(t) {
   switch (t.state) {
     case 'none': return { text: 'なし', tone: 'g' };
     case 'done': return { text: t.steps === 3 ? '確認済' : '済', tone: 'g' };
-    case 'ordered': return { text: consult ? '返事待ち' : '結果待ち', tone: 'a' };
-    case 'resulted': return { text: consult ? '返事あり・確認待ち' : '結果あり・確認待ち', tone: 'a' };
+    case 'ordered':
+    case 'resulted': return { text: consult ? '返事待ち' : '結果待ち', tone: 'a' };
     default: return { text: '未', tone: 'r' };
   }
 }
@@ -149,8 +151,8 @@ export function shortState(t) {
   switch (t.state) {
     case 'none': return 'なし';
     case 'done': return '済';
-    case 'ordered': return t.kind === 'consult' ? '返事待ち' : '結果待ち';
-    case 'resulted': return '確認待ち';
+    case 'ordered':
+    case 'resulted': return t.kind === 'consult' ? '返事待ち' : '結果待ち';
     default: return '未';
   }
 }
@@ -164,8 +166,15 @@ export function shortLabel(label) {
 
 export const stepCount = (t) => {
   const o = ORDER[t.steps] || ORDER[2];
-  return t.state === 'none' ? 0 : Math.max(0, o.indexOf(t.state));
+  return t.state === 'none' ? 0 : Math.max(0, o.indexOf(stateOf(t)));
 };
+
+// 古い「結果あり（確認待ち）」をオーダー済に直す（変えたら true）
+export function migrateResulted(p) {
+  let changed = false;
+  for (const t of p.tasks || []) if (t.state === 'resulted') { t.state = 'ordered'; changed = true; }
+  return changed;
+}
 
 // ---- 患者 ----
 export function newPatient(fields, templates) {
@@ -359,6 +368,32 @@ export const icWarn = (p) => p.location === 'inpatient' && !p.ending && icDays(p
 export const deviceDay = (d) => diffDays(d.removedDate || today(), d.insertedDate) + 1;
 export const deviceWarn = (d) => !d.removedDate && deviceDay(d) >= DEVICE_WARN_DAYS;
 export const activeDevices = (p) => (p.devices || []).filter((d) => !d.removedDate);
+
+// ---- 残っている TODO（0.9.0〜・一覧の「残りTODO」とメニューの数） ----
+// 今やることだけ：未のタスク（期限切れも）・回診 未・今日の採血（未確認・あり確認未）・培養の確認・抗菌薬の最終日・
+// 家族IC 7日超・デバイス 14日超。結果待ち（オーダー済）と明日以降の予定は入れない
+export function remainingItems(p, key = dayKey()) {
+  const out = [];
+  if (p.location === 'inpatient') {
+    const d = dailyGet(p, key);
+    if (d.visit === 'todo') out.push({ type: 'daily', f: 'visit', label: '回診', state: '未', tone: 'r' });
+    if (bloodOpen(d.blood)) out.push({ type: 'daily', f: 'blood', label: '今日の採血', state: BLOOD[d.blood].text, tone: BLOOD[d.blood].tone });
+  }
+  const rank = (t) => (t.group === 'admit' ? 0 : GROUP_TITLES[t.group] ? 1 : 2);
+  const tasks = (p.tasks || []).filter((t) => t.state === 'todo' && isDueNow(t)).sort((a, b) => rank(a) - rank(b));
+  for (const t of tasks) {
+    const sub = t.group === 'admit' ? '入院の手続き' : GROUP_TITLES[t.group] || '';
+    const late = t.dueDate && t.dueDate < today();
+    out.push({ type: 'task', id: t.id, label: t.label, sub, state: late ? '期限切れ' : '未', tone: 'r' });
+  }
+  const c = todayClinical(p);
+  for (const x of c.cultures) out.push({ type: 'culture', id: x.id, label: `${cultureTitle(x)} 確認`, state: '確認', tone: 'r' });
+  for (const m of c.meds) out.push({ type: 'med', id: m.id, label: medFinalLabel(m), state: '確認', tone: 'r' });
+  if (icWarn(p)) out.push({ type: 'ic', label: '家族IC', state: `${icDays(p)}日前`, tone: 'r' });
+  if (p.location === 'inpatient') for (const dv of activeDevices(p).filter(deviceWarn)) out.push({ type: 'device', id: dv.id, label: dv.type, state: `留置${deviceDay(dv)}日目`, tone: 'r' });
+  return out;
+}
+export const remainingCount = (patients) => patients.reduce((n, p) => n + remainingItems(p).length, 0);
 
 // ---- 終わり方 ----
 export function endingLabel(p) {

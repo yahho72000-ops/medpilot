@@ -1,7 +1,7 @@
 // データの読み書きとアプリ全体の状態
 
 import { openDB, get, getAll, put, del, deleteDB } from './db.js';
-import { DEFAULT_TEMPLATES } from './model.js';
+import { DEFAULT_TEMPLATES, migrateResulted } from './model.js';
 import { defaultLabItems } from './labs.js';
 import { defaultFavMeds, upgradeFavMeds } from './meds.js';
 import { defaultFavFeeds, DEFAULT_DIET_FORMS, DEFAULT_DIET_TYPES } from './nutrition.js';
@@ -90,6 +90,8 @@ async function openData(demo) {
   state.demo = demo;
   state.dataDb = demo ? await openDB(DEMO_DB) : state.mainDb;
   state.patients = await getAll(state.dataDb, 'patients');
+  // 0.9.0：「結果あり（確認待ち）」をなくしたので、残っていたものはオーダー済に直して保存
+  for (const p of state.patients) if (migrateResulted(p)) await put(state.dataDb, 'patients', p);
 }
 
 export async function saveMeta(key) {

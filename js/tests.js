@@ -29,9 +29,9 @@ async function run() {
   const t3 = M.newTask({ label: '血液検査', steps: 3, kind: 'lab' });
   const seq = [];
   for (let i = 0; i < 4; i++) { M.setState(t3, M.nextState(t3)); seq.push(t3.state); }
-  eq('3段階の順番', seq, ['ordered', 'resulted', 'done', 'done']);
+  eq('3段階の順番', seq, ['ordered', 'done', 'done', 'done']);
   M.setState(t3, M.prevState(t3));
-  eq('1つ戻す', t3.state, 'resulted');
+  eq('1つ戻す', t3.state, 'ordered');
   const t2 = M.newTask({ label: '家族IC', steps: 2, kind: 'ic' });
   M.setState(t2, M.nextState(t2));
   eq('2段階', t2.state, 'done');
@@ -102,7 +102,7 @@ async function run() {
   eq('今日の採血予定があれば「あり（確認未）」', M.dailyGet(ip2).blood, 'yes');
 
   // タップで出す選択肢
-  eq('3段階の選択肢', M.stateChoices(M.newTask({ label: 'x', steps: 3 })).map((x) => x[0]), ['todo', 'ordered', 'resulted', 'done', 'none']);
+  eq('3段階の選択肢', M.stateChoices(M.newTask({ label: 'x', steps: 3 })).map((x) => x[0]), ['todo', 'ordered', 'done', 'none']);
   eq('2段階の選択肢', M.stateChoices(M.newTask({ label: 'x', steps: 2 })).map((x) => x[0]), ['todo', 'done', 'none']);
 
   // 病棟と病室
@@ -519,6 +519,40 @@ async function run() {
   ok('保存したひな形に Xp を1回だけ足す', upgradeTemplates(tplOld, setOld) && tplOld.admit[2] === '翌日以降のXpオーダー');
   tplOld.admit.splice(2, 1);
   ok('消したらもう足さない', !upgradeTemplates(tplOld, setOld) && !tplOld.admit.some((x) => /Xp/.test(x)));
+
+  // 0.9.0：病棟の並び・「結果あり（確認待ち）」をなくす・残りTODO
+  eq('病棟は ICU・HCU2・HCU1 がいちばん上', M.WARDS.slice(0, 4), ['ICU', 'HCU2', 'HCU1', '2E']);
+  const old = M.newPatient({ code: 'OLD1', location: 'er' }, tpl);
+  old.tasks[0].steps = 3;
+  old.tasks[0].state = 'resulted';
+  ok('古い「結果あり」はオーダー済に直す', M.migrateResulted(old) && old.tasks[0].state === 'ordered' && !M.migrateResulted(old));
+  eq('古い「結果あり」も結果待ちとして表示', M.stateInfo({ steps: 3, kind: 'lab', state: 'resulted' }).text, '結果待ち');
+  eq('3段階の棒は2つ', M.STEP_TOTAL({ steps: 3 }), 2);
+  // 残りTODO（入院）
+  const rp = M.newPatient({ code: 'RMN1', location: 'inpatient', admitDate: addDays(ymd(), -20) }, tpl);
+  rp.tasks.push(M.newTask({ label: 'Xp', steps: 3, kind: 'image', group: 'inpatient' }));
+  rp.tasks.push(M.newTask({ label: '嚥下評価', steps: 2, group: 'inpatient', dueDate: addDays(ymd(), -1) }));
+  rp.tasks.push(M.newTask({ label: 'CT', steps: 3, group: 'inpatient', dueDate: addDays(ymd(), 2) }));
+  rp.tasks.push(M.newTask({ label: '入院決定', steps: 2, kind: 'list', group: 'admit' }));
+  const waitT = M.newTask({ label: '心エコー', steps: 3, group: 'inpatient' });
+  waitT.state = 'ordered';
+  rp.tasks.push(waitT);
+  rp.devices = [{ id: 'dv1', type: 'CV', insertedDate: addDays(ymd(), -15), removedDate: null }, { id: 'dv2', type: '胃管', insertedDate: addDays(ymd(), -2), removedDate: null }];
+  const rItems = M.remainingItems(rp);
+  eq('残りTODO：回診・採血・手続き・未のタスク・IC・デバイス（結果待ちと明日以降は出さない）', rItems.map((x) => `${x.label}|${x.state}`), ['回診|未', '今日の採血|未確認', '入院決定|未', 'Xp|未', '嚥下評価|期限切れ', '家族IC|20日前', 'CV|留置16日目']);
+  M.dailySet(rp, 'visit', 'done');
+  M.dailySet(rp, 'blood', 'yes');
+  ok('採血「あり（確認未）」は残る・回診 済は消える', M.remainingItems(rp).some((x) => x.label === '今日の採血' && x.state === 'あり（確認未）') && !M.remainingItems(rp).some((x) => x.label === '回診'));
+  M.dailySet(rp, 'blood', 'done');
+  for (const t of rp.tasks) if (t.state === 'todo') M.setState(t, 'done');
+  rp.lastICDate = ymd();
+  rp.devices[0].removedDate = ymd();
+  eq('全部終われば 0', M.remainingCount([rp]), 0);
+  // 残りTODO（救急外来）：ER の基本リストの未だけ
+  const re = M.newPatient({ code: 'RMN2', location: 'er' }, tpl);
+  M.setState(re.tasks[0], 'ordered');
+  M.setState(re.tasks[1], 'none');
+  eq('救急外来の残りTODO', M.remainingItems(re).map((x) => x.label), re.tasks.slice(2).map((t) => t.label));
 
   const pass = results.filter((r) => r.ok).length;
   const lines = results.map((r) => `${r.ok ? 'OK ' : 'NG '} ${r.name}${r.ok ? '' : `\n     got:  ${JSON.stringify(r.got)}\n     want: ${JSON.stringify(r.want)}`}`);

@@ -9,6 +9,7 @@ import * as ui from '../ui.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 import { nutritionBlock, memoRow } from '../nutriUI.js';
 import { summaryBlock, summaryButton } from './summary.js';
+import { listTabs, todoView, viewActions } from './todo.js';
 
 function rowChips(p) {
   const out = [];
@@ -39,7 +40,7 @@ export function setPage(n) {
 
 // ---- 一覧 ----
 export const inListScreen = {
-  render() {
+  render(params = {}) {
     const mode = state.meta.settings.inpatientSort || 'days';
     const list = M.sortInpatients(state.patients.filter((p) => p.location === 'inpatient'), mode);
     const sorts = Object.entries(M.IN_SORTS)
@@ -58,13 +59,20 @@ export const inListScreen = {
           </button>${move}</div>`;
       })
       .join('');
+    const todo = params.view === 'todo';
     return `${header(`入院患者　${list.length}人`, 'メニュー')}
-      <div class="chips-row">${sorts}</div>
-      <div class="lrows">${rows || emptyState('入院患者はいません')}</div>
-      <div class="bottom-space"></div>
-      <button class="btn fixed-bottom" data-act="goRegister" data-to="in">＋ 入院患者を登録</button>`;
+      ${list.length ? listTabs(params.view, M.remainingCount(list)) : ''}
+      <div class="ppage">
+      ${todo && list.length
+        ? todoView(list, (p) => `入院${M.hospitalDay(p)}日目`)
+        : `<div class="chips-row">${sorts}</div>
+      <div class="lrows">${rows || emptyState('入院患者はいません')}</div>`}
+      </div>
+      ${todo ? '' : `<div class="bottom-space"></div>
+      <button class="btn fixed-bottom" data-act="goRegister" data-to="in">＋ 入院患者を登録</button>`}`;
   },
   actions: {
+    ...viewActions,
     async inSort(ds) {
       if (ds.v === 'manual') {
         // 今の並びを手動の並びの出発点にする
@@ -193,21 +201,6 @@ export const inPatientScreen = {
     setPage(ds) { setPage(Number(ds.v)); },
     swipeNext() { setPage(2); },
     swipePrev() { setPage(1); },
-    async tapDaily(ds) {
-      const p = findPatient(ds.pid);
-      const d = M.dailyGet(p);
-      const isVisit = ds.f === 'visit';
-      const opts = isVisit
-        ? [['todo', '未'], ['done', '済']]
-        : Object.entries(M.BLOOD).map(([k, b]) => [k, b.text]);
-      const cur = d[ds.f];
-      const v = await ui.choose(isVisit ? '回診' : '今日の採血', '', opts.map(([k, l]) => ({ v: k, label: l, tone: k === cur ? 'btn' : 'btn2' })));
-      if (!v || v === cur) return;
-      M.dailySet(p, ds.f, v);
-      await savePatient(p);
-      render();
-      ui.toast(`${isVisit ? '回診' : '今日の採血'}：${opts.find(([k]) => k === v)[1]}`);
-    },
     async icToday(ds) {
       const p = findPatient(ds.pid);
       const before = p.lastICDate;

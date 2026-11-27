@@ -61,7 +61,7 @@ export async function seedDemo() {
 
   // 救急外来
   const a = await make({ nickname: 'サクラ', ageBand: '80', sex: 'F', ward: 'ER', room: '3', disease: '肺炎疑い', codeStatus: 'unknown' });
-  setEr(a, ['ordered', 'resulted', 'todo', 'none', 'todo']);
+  setEr(a, ['ordered', 'ordered', 'todo', 'none', 'todo']);
   T(a, '喀痰培養の提出', 'todo');
   cul(a, '血液', t, 2);
   med(a, { name: 'CTRX', cat: 'abx', start: t });
@@ -73,11 +73,11 @@ export async function seedDemo() {
   await savePatient(q);
 
   const b = await make({ nickname: 'ゴロー', ageBand: '50', sex: 'M', ward: 'ER', room: '1', disease: '腹痛', codeStatus: 'full' });
-  setEr(b, ['ordered', 'resulted', 'done', 'none', 'done']);
+  setEr(b, ['ordered', 'ordered', 'done', 'none', 'done']);
   await savePatient(b);
 
   const c = await make({ nickname: 'トラ', ageBand: '70', sex: 'M', ward: 'ER', room: '5', disease: '頭部打撲', codeStatus: 'full' });
-  setEr(c, ['done', 'resulted', 'none', 'done', 'done']);
+  setEr(c, ['done', 'ordered', 'none', 'done', 'done']);
   c.tasks[1].label = '画像（MRI）';
   M.applyEnding(c, 'admit_other', state.meta.templates, '脳外科');
   await savePatient(c);

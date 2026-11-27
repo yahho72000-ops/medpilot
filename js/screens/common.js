@@ -102,7 +102,7 @@ function bars(t) {
   const n = M.stepCount(t);
   const tone = t.state === 'done' ? 'g' : 'a';
   let s = '<div class="bars">';
-  for (let i = 0; i < 3; i++) s += `<span class="bar ${i < n ? tone : ''}"></span>`;
+  for (let i = 0; i < M.STEP_TOTAL(t); i++) s += `<span class="bar ${i < n ? tone : ''}"></span>`;
   return s + '</div>';
 }
 

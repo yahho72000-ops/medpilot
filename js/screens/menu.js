@@ -11,9 +11,12 @@ function counts() {
   const inp = ps.filter((p) => p.location === 'inpatient');
   const fol = ps.filter((p) => p.location === 'followup');
   const today = M.today();
+  const er = ps.filter((p) => p.location === 'er');
   return {
-    er: ps.filter((p) => p.location === 'er').length,
+    er: er.length,
     inp: inp.length,
+    erLeft: M.remainingCount(er),
+    inLeft: M.remainingCount(inp),
     fol: fol.length,
     past: ps.filter((p) => p.location === 'past').length,
     ic: inp.filter(M.icWarn).length,
@@ -45,15 +48,18 @@ export const menuScreen = {
     const install = standalone()
       ? ''
       : '<div class="hint">ホーム画面に追加すると、アプリとして使えます（Safari の共有ボタン →「ホーム画面に追加」）。</div>';
-    const tile = (act, label, num, unit, note = '') => `<button class="tile" ${act ? `data-act="${act}"` : 'disabled'}>
+    const tile = (act, label, num, unit, note = '', sub = '') => `<button class="tile" ${act ? `data-act="${act}"` : 'disabled'}>
         <span class="tile-label">${label}</span>
         ${num !== null ? `<span class="tile-num">${num}<span class="tile-unit">${unit}</span></span>` : `<span class="muted small">${note}</span>`}
+        ${sub}
       </button>`;
+    // 残りの TODO の数（全部終わったら「おつかれさま！」）
+    const left = (n, people) => (people ? `<span class="tile-sub ${n ? 'left' : 'done'}">${n ? `残り ${n}` : 'おつかれさま！'}</span>` : '');
     return `<div class="brand-hdr"><div class="brand">MedPilot</div><div class="muted">${todayJa()}</div></div>
       ${alertBox}${install}
       <div class="tiles">
-        ${tile('goEr', '救急外来', c.er, '人')}
-        ${tile('goIn', '入院患者', c.inp, '人')}
+        ${tile('goEr', '救急外来', c.er, '人', '', left(c.erLeft, c.er))}
+        ${tile('goIn', '入院患者', c.inp, '人', '', left(c.inLeft, c.inp))}
         ${tile('goFollow', '帰宅後フォロー', c.fol, '人')}
         ${tile('goHandoff', '申し送り', c.er + c.inp, '人')}
         ${tile('goPast', '過去の一覧', c.past, '人')}
