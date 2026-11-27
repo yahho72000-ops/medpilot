@@ -4,6 +4,7 @@ import { esc, mdw, md } from '../util.js';
 import { state } from '../store.js';
 import * as M from '../model.js';
 import { latestValues } from '../labs.js';
+import { nutritionLine } from '../nutrition.js';
 
 export function header(title, backLabel, right = '') {
   const back = backLabel
@@ -63,6 +64,7 @@ export function profileCard(p) {
     <div class="row-between"><div class="pname">${nick(p)}${p.bed ? `　<span class="muted">${esc(p.bed)}</span>` : ''}</div><div class="tools"><button class="mini" data-act="revealId" data-pid="${p.id}">ID</button><button class="mini" data-act="editPatient" data-pid="${p.id}">編集</button></div></div>
     <div class="muted">${esc(line)}</div>
     ${main ? `<div class="mainprob">${esc(main)}</div>` : ''}
+    ${nutritionLine(p) ? `<div class="small">栄養：${esc(nutritionLine(p))}</div>` : ''}
     ${warns.length ? `<div class="chips-row">${warns.join('')}</div>` : ''}
   </div>`;
 }

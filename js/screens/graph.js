@@ -6,6 +6,7 @@ import { render, current } from '../router.js';
 import { header, emptyState } from './common.js';
 import * as K from '../meds.js';
 import { num } from '../labs.js';
+import * as F from '../nutrition.js';
 
 const W = 360;
 const L = 66; // 左の名前の幅
@@ -128,6 +129,51 @@ function medRows(p, sc, start, end, y0) {
   return { svg: out, y };
 }
 
+// 栄養：持続は速さ（mL/h）の階段の線、単回は横棒（数 × 回数）
+function feedRows(p, sc, start, end, y0) {
+  const feeds = (p.feeds || []).filter((f) => f.start <= end && (f.end || end) >= start).sort((a, b) => (a.route < b.route ? -1 : a.start < b.start ? -1 : 1));
+  let y = y0;
+  let out = '';
+  const nowMs = Date.now();
+  for (const f of feeds) {
+    const color = F.ROUTES[f.route].color;
+    const cs = (f.changes || []).slice().sort((a, b) => a.at - b.at);
+    if (f.mode === 'cont') {
+      const h = 26;
+      const base = y + h + 4;
+      const max = Math.max(...cs.map((c) => Number(c.ml) || 0), 0) || 1;
+      const stopMs = f.end ? Math.min(parseYmd(f.end).getTime() + 86400000, sc.endMs) : Math.min(nowMs, sc.endMs);
+      out += `<text x="0" y="${y + 12}" class="g-name">${esc(short(f.name))}</text><text x="0" y="${y + 25}" class="g-unit">mL/h</text>`;
+      out += `<line x1="${L}" y1="${base}" x2="${L + PW}" y2="${base}" class="g-line"/>`;
+      let d = '';
+      let labels = '';
+      for (let i = 0; i < cs.length; i++) {
+        const v = Number(cs[i].ml) || 0;
+        const a = cs[i].at;
+        const b = i + 1 < cs.length ? cs[i + 1].at : stopMs;
+        if (!(v > 0) || b <= sc.startMs || a >= sc.endMs || b <= a) continue;
+        const xa = sc.xMs(a);
+        const xb = sc.xMs(b);
+        const yy = f1(base - (v / max) * h);
+        d += `M${f1(xa)} ${base} V${yy} H${f1(xb)} V${base} `;
+        if (xb - xa >= 20) labels += `<text x="${f1((xa + xb) / 2)}" y="${f1(Math.max(y + 8, yy - 3))}" class="g-val" text-anchor="middle" style="fill:${color}">${esc(K.fmtNum(v))}</text>`;
+      }
+      if (d) out += `<path d="${d}" style="fill:${color};fill-opacity:.22;stroke:${color};stroke-width:1.4"/>${labels}`;
+      y = base + 8;
+    } else {
+      const xa = sc.x0(f.start < start ? start : f.start);
+      const last = f.end && f.end < end ? f.end : end;
+      const xb = sc.x1(last);
+      const c = F.feedAt(f);
+      out += `<text x="0" y="${y + 12}" class="g-name">${esc(short(f.name))}</text>`;
+      out += `<rect x="${f1(xa)}" y="${y + 2}" width="${f1(Math.max(2, xb - xa))}" height="13" rx="3" style="fill:${color}"/>`;
+      if (c && xb - xa > 44) out += `<text x="${f1(xb - 4)}" y="${y + 12}" class="g-bar" text-anchor="end">${esc(F.changeText(f, c))}</text>`;
+      y += 20;
+    }
+  }
+  return { svg: out, y };
+}
+
 function cultureMarks(p, sc, start, end, y) {
   let out = '';
   for (const c of p.cultures || []) {
@@ -191,6 +237,9 @@ export const graphScreen = {
     const sc = scale(start, end);
     const seg = `<div class="seg">${PERIODS.map(([k, l]) => `<button class="${k === period ? 'on' : ''}" data-act="graphPeriod" data-v="${k}">${l}</button>`).join('')}</div>`;
     const meds = medRows(p, sc, start, end, 4);
+    const feeds = feedRows(p, sc, start, end, meds.y);
+    meds.svg += feeds.svg;
+    meds.y = feeds.y;
     const axisY = meds.y + 4;
     const marks = cultureMarks(p, sc, start, end, axisY + 26);
     const topH = axisY + 40;
@@ -204,7 +253,7 @@ export const graphScreen = {
         return `<div class="g-panel">${itemSelect(p, i, it)}${labPanel(p, it, sc, start, end)}</div>`;
       })
       .join('');
-    const legend = Object.values(K.MED_CATS).map((c) => `<span><span class="mdot" style="background:${c.color}"></span>${c.label}</span>`).join('');
+    const legend = [...Object.values(K.MED_CATS), ...Object.values(F.ROUTES)].map((c) => `<span><span class="mdot" style="background:${c.color}"></span>${c.label}</span>`).join('');
     return `${header('経過グラフ', p.code)}
       ${seg}
       <div class="muted small">${md(start)}〜${md(end)}</div>

@@ -7,6 +7,7 @@ import { go, render, current } from '../router.js';
 import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick, pageTabs, profileCard, miniHead } from './common.js';
 import * as ui from '../ui.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
+import { nutritionBlock, memoRow } from '../nutriUI.js';
 
 function rowChips(p) {
   const out = [];
@@ -136,6 +137,7 @@ export const inPatientScreen = {
       ${pageTabs(1)}
       <div class="ppage">
       ${profileCard(p)}
+      ${memoRow(p)}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${admitOpen ? `${sec(`入院の手続き（残り${admitOpen}）`)}<div class="tlist">${admitTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
@@ -158,6 +160,8 @@ export const inPatientScreen = {
       <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>
       ${sec('薬', `<button class="mini" data-act="addMed" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card kvlist">${medsBlock(p)}</div>
+      ${sec('栄養')}
+      <div class="card kvlist">${nutritionBlock(p)}</div>
       ${sec('培養', `<button class="mini" data-act="addCulture" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card clist">${culturesBlock(p)}</div>
       ${sec('デバイス', `<button class="mini" data-act="addDevice" data-pid="${p.id}">＋ 追加</button>`)}

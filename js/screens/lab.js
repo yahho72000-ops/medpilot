@@ -131,7 +131,7 @@ export const labConfirmScreen = {
         const it = e.itemId ? items.find((x) => x.id === e.itemId) : nameToItem.get(e.name);
         if (!it) continue;
         p.labs = p.labs || [];
-        p.labs.push({ id: uuid(), date: g.date, draw: g.draw, itemId: it.id, value, flag });
+        p.labs.push({ id: uuid(), date: g.date, draw: g.draw, itemId: it.id, value, flag, importedAt: Date.now() });
         n++;
       }
       if (!n) {

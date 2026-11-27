@@ -46,7 +46,7 @@ export const menuScreen = {
         ${tile('goEr', '救急外来', c.er, '人')}
         ${tile('goIn', '入院患者', c.inp, '人')}
         ${tile('goFollow', '帰宅後フォロー', c.fol, '人')}
-        ${tile('', '申し送り', null, '', '第3弾で追加')}
+        ${tile('goHandoff', '申し送り', c.er + c.inp, '人')}
         ${tile('goPast', '過去の一覧', c.past, '人')}
         ${tile('goSettings', '設定', null, '', '色・PIN・ひな形')}
       </div>
@@ -57,6 +57,7 @@ export const menuScreen = {
     goIn() { go('inList'); },
     goFollow() { go('followup'); },
     goPast() { go('past'); },
+    goHandoff() { go('handoff', { tab: 'er' }); },
     goSettings() { go('settings'); },
   },
 };

@@ -114,6 +114,7 @@ button:disabled { opacity: .4; cursor: default; }
 .seg button.on { background: var(--btn-bg); color: var(--btn-tx); font-weight: 700; }
 .seg.wrap6 { grid-auto-flow: row; grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .seg.wrap3 { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg.wrap4 { grid-auto-flow: row; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .mini-seg { padding: 2px; border-radius: 9px; }
 .mini-seg button { min-height: 30px; font-size: .78rem; padding: 2px 6px; }
 
@@ -287,6 +288,28 @@ details.ended summary { padding: 6px 0; cursor: pointer; }
 .calc:empty { min-height: 0; }
 details.rev summary { color: var(--sub); font-size: .85rem; padding: 4px 0; cursor: pointer; }
 details.rev .row-gap { margin: 6px 0; }
+
+/* 栄養 */
+.spec-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.spec-grid:has(> :nth-child(2):last-child) { grid-template-columns: minmax(0, 1fr) auto; }
+.nbtns { margin-top: 8px; }
+.nbtns .btn3 { min-height: 40px; font-size: .84rem; padding: 6px 4px; }
+button.chip { cursor: pointer; }
+
+/* 申し送りメモ */
+.memo { background: var(--a-bg); color: var(--a-tx); border-radius: 12px; padding: 8px 12px; cursor: pointer; }
+.memo .muted { color: var(--a-tx); opacity: .8; }
+.memo-text { white-space: pre-wrap; font-size: .98rem; }
+.memo.memo-empty { background: transparent; border: 1px dashed var(--line2); color: var(--sub); }
+.memo.memo-empty .muted { color: var(--sub); }
+.memo-add { min-height: 40px; font-size: .9rem; }
+
+/* 申し送り画面（口で伝える用に大きめ） */
+.ho { font-size: 1.06rem; }
+.ho-card { gap: 4px; }
+.ho-head { background: none; border: none; padding: 0; text-align: left; font-size: 1.22rem; font-weight: 700; color: var(--text); }
+.ho-sec { font-size: .82rem; color: var(--sub); font-weight: 700; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+.ho-list { margin: 2px 0 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 2px; }
 
 /* 培養 */
 .clist { gap: 0; padding-top: 4px; padding-bottom: 4px; }

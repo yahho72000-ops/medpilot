@@ -11,9 +11,10 @@ import { seedDemo } from '../demo.js';
 import * as ui from '../ui.js';
 import * as N from '../notify.js';
 import * as K from '../meds.js';
+import * as F from '../nutrition.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.4.1';
+export const APP_VERSION = '0.5.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -48,7 +49,7 @@ export const settingsScreen = {
         ${row('goNotify', '通知（ntfy）', s.notify.topic ? (s.notify.on ? 'オン ›' : 'オフ ›') : '未設定 ›')}
       </div>
       ${sec('薬')}
-      <div class="card kvlist">${row('goFavMeds', 'よく使う薬（種類・単位）')}</div>
+      <div class="card kvlist">${row('goFavMeds', 'よく使う薬（種類・組成・単位）')}${row('goNutri', '栄養（商品・食事の形態・治療食）')}</div>
       ${sec('ひな形')}
       <div class="card kvlist">${Object.entries(M.TEMPLATE_NAMES).map(([k, l]) => row('editTpl', l, '›', `data-k="${k}"`)).join('')}</div>
       ${sec('検査値')}
@@ -122,6 +123,7 @@ export const settingsScreen = {
     },
     goNotify() { go('notifySettings'); },
     goFavMeds() { go('favMeds'); },
+    goNutri() { go('nutriSettings'); },
     async setDemoMode(ds) {
       const on = ds.v === 'on';
       if (on === !!state.meta.settings.demo) return;
@@ -459,4 +461,83 @@ function favSheet(f) {
     if (flow && !(f && f.unit)) $('#fv-unit').value = K.MED_CATS[e.detail.value].unit;
   });
   return pr;
+}
+
+// ---- 栄養の設定（商品・食事の形態・治療食） ----
+const r1 = (v) => Math.round(Number(v) * 10) / 10;
+
+export const nutriSettingsScreen = {
+  render() {
+    const favs = state.meta.favFeeds || [];
+    const diet = state.meta.diet || { forms: [], types: [] };
+    const feedRows = Object.entries(F.ROUTES).map(([route, r]) => {
+      const list = favs.map((f, i) => ({ f, i })).filter(({ f }) => f.route === route);
+      return `${sec(r.label)}<div class="card kvlist">${list.map(({ f, i }) => `<button class="kv btnrow" data-act="editFeedFav" data-i="${i}"><span><span class="mdot" style="background:${r.color}"></span>${esc(f.name)}</span><span class="muted small">${r1(f.packMl)}mL ・ ${r1(f.packKcal)}kcal${f.protein !== null && f.protein !== undefined ? ` ・ ${r1(f.protein)}g` : ' ・ タンパク質 未'} ›</span></button>`).join('') || '<div class="muted small">まだありません</div>'}</div>
+        <button class="btn3" data-act="addFeedFav" data-route="${route}">＋ ${r.label}の商品を追加</button>`;
+    }).join('');
+    const listEdit = (key, title, items) => `${sec(title)}<div class="card kvlist">${items.map((x, i) => `<div class="kv"><span>${esc(x)}</span><span>${i > 0 ? `<button class="mini" data-act="dietUp" data-k="${key}" data-i="${i}" aria-label="上へ">▲</button>` : ''}<button class="mini danger-tx" data-act="dietDel" data-k="${key}" data-i="${i}">削除</button></span></div>`).join('')}</div>
+      <button class="btn3" data-act="dietAdd" data-k="${key}">＋ ${title}を追加</button>`;
+    return `${header('栄養の設定', '設定')}
+      <div class="muted small">商品は1パック（1袋）あたりの量・熱量・タンパク質（点滴はアミノ酸）です。タンパク質を入れた商品だけ、1日のタンパク質を計算します。</div>
+      ${feedRows}
+      ${listEdit('forms', '食事の形態', diet.forms)}
+      ${listEdit('types', '治療食', diet.types)}`;
+  },
+  actions: {
+    async editFeedFav(ds) {
+      const favs = state.meta.favFeeds;
+      const f = favs[Number(ds.i)];
+      const r = await feedFavSheet(f, f.route);
+      if (!r) return;
+      if (r === '__delete') favs.splice(Number(ds.i), 1); else Object.assign(f, r);
+      await saveMeta('favFeeds');
+      render();
+    },
+    async addFeedFav(ds) {
+      const r = await feedFavSheet(null, ds.route);
+      if (!r || r === '__delete') return;
+      state.meta.favFeeds.push(r);
+      await saveMeta('favFeeds');
+      render();
+    },
+    feedFavOk(ds) {
+      const n = (id) => { const t = $(id).value.normalize('NFKC').trim(); return t && Number.isFinite(Number(t)) ? Number(t) : null; };
+      const name = $('#ff-name').value.trim();
+      const packMl = n('#ff-ml');
+      const packKcal = n('#ff-kcal');
+      if (!name || !(packMl > 0) || !(packKcal > 0)) return void ($('#ff-err').textContent = '名前・量（mL）・熱量（kcal）を入れてください');
+      ui.resolveSheet({ name, route: ds.route, packMl, packKcal, protein: n('#ff-pro') });
+    },
+    async dietAdd(ds) {
+      const t = await ui.promptText({ title: ds.k === 'forms' ? '食事の形態を追加' : '治療食を追加', placeholder: ds.k === 'forms' ? '例：全粥' : '例：心臓食' });
+      if (!t) return;
+      state.meta.diet[ds.k].push(t);
+      await saveMeta('diet');
+      render();
+    },
+    async dietDel(ds) {
+      state.meta.diet[ds.k].splice(Number(ds.i), 1);
+      await saveMeta('diet');
+      render();
+    },
+    async dietUp(ds) {
+      const a = state.meta.diet[ds.k];
+      const i = Number(ds.i);
+      [a[i - 1], a[i]] = [a[i], a[i - 1]];
+      await saveMeta('diet');
+      render();
+    },
+  },
+};
+
+function feedFavSheet(f, route) {
+  const r = F.ROUTES[route];
+  return ui.custom(`<div class="sheet-title">${f ? `${esc(r.label)}の商品を編集` : `${esc(r.label)}の商品を追加`}</div>
+    <label class="lbl" for="ff-name">名前</label><input id="ff-name" type="text" value="${esc(f ? f.name : '')}" autocomplete="off">
+    <div class="lbl">1${r.unit}あたり</div>
+    <div class="spec-grid"><input id="ff-ml" type="text" inputmode="decimal" value="${esc(f ? r1(f.packMl) : '')}" placeholder="量" aria-label="量 mL"><span class="muted">mL</span><input id="ff-kcal" type="text" inputmode="decimal" value="${esc(f ? r1(f.packKcal) : '')}" placeholder="熱量" aria-label="熱量 kcal"><span class="muted">kcal</span></div>
+    <div class="spec-grid"><input id="ff-pro" type="text" inputmode="decimal" value="${esc(f && f.protein !== null && f.protein !== undefined ? r1(f.protein) : '')}" placeholder="${route === 'pn' ? 'アミノ酸（なくても可）' : 'タンパク質（なくても可）'}" aria-label="タンパク質 g"><span class="muted">g</span></div>
+    <div class="err" id="ff-err"></div>
+    <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="feedFavOk" data-route="${route}">保存</button></div>
+    ${f ? '<button class="danger" data-act="sheetChoose" data-v="__delete">よく使う栄養から外す</button>' : ''}`);
 }

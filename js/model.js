@@ -2,6 +2,7 @@
 
 import { uuid, ymd, dayKey, diffDays } from './util.js';
 import { openCultures, clinicalCount, endOpenMeds } from './meds.js';
+import { endOpenFeeds } from './nutrition.js';
 
 // ---- ひな形（設定で編集できる。ここは最初の値） ----
 export const DEFAULT_TEMPLATES = {
@@ -192,6 +193,10 @@ export function newPatient(fields, templates) {
     devices: [],
     meds: [],
     cultures: [],
+    feeds: [],
+    oral: [],
+    intake: {},
+    handoffMemo: '',
     daily: {},
     lastICDate: null,
     outlook: null,
@@ -359,6 +364,7 @@ export function moveToFollowup(p, defaultDays = 3) {
   p.location = 'followup';
   p.homeDate = today();
   endOpenMeds(p, p.homeDate);
+  endOpenFeeds(p, p.homeDate);
   for (const t of p.tasks) {
     if (isOpen(t)) {
       t.group = 'followup';
@@ -375,6 +381,7 @@ export function moveToPast(p) {
   p.endedFrom = p.endedFrom || (p.ending ? p.ending.from : p.location);
   // 続いている薬は、その日（終わり方を選んだ日）で終了にする
   endOpenMeds(p, p.ending && p.ending.at ? p.ending.at : today());
+  endOpenFeeds(p, p.ending && p.ending.at ? p.ending.at : today());
   p.location = 'past';
   p.endedAt = today();
 }

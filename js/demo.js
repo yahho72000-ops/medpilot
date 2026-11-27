@@ -5,6 +5,7 @@ import * as M from './model.js';
 import { addDays, ymd, uuid } from './util.js';
 import { encryptId, randomCode } from './crypto.js';
 import * as K from './meds.js';
+import * as F from './nutrition.js';
 
 // 薬を足す（end を渡すと終了済み）
 const med = (p, f, end = null) => {
@@ -50,7 +51,7 @@ function labs(p, date, values) {
   const items = state.meta.labItems;
   for (const [abbr, value, flag] of values) {
     const it = items.find((x) => x.abbr === abbr);
-    if (it) p.labs.push({ id: uuid(), date, draw: 1, itemId: it.id, value: String(value), flag: flag || '' });
+    if (it) p.labs.push({ id: uuid(), date, draw: 1, itemId: it.id, value: String(value), flag: flag || '', importedAt: new Date(`${date}T09:00`).getTime() });
   }
 }
 
@@ -117,6 +118,9 @@ export async function seedDemo() {
   K.setCultureStage(es, 'sens', d(-3));
   K.setCultureStage(es, 'done', d(-3));
   cul(e, '尿', d(-3));
+  e.oral = [{ at: at(d(-6), '12:00'), npo: true, form: '', diet: '' }, { at: at(d(-3), '08:00'), npo: false, form: '嚥下食2', diet: '' }];
+  F.setIntake(e, 5);
+  e.handoffMemo = '夜間 痰が多ければ吸引を。';
   e.notes = [
     { id: uuid(), date: t, at: Date.now(), text: '解熱。食事5割摂取。' },
     { id: uuid(), date: d(-1), at: Date.now() - 86400000, text: '酸素 1L に減量。' },
@@ -142,6 +146,7 @@ export async function seedDemo() {
 
   const h = await inp({ nickname: 'ハナコ', ageBand: '60', sex: 'F', ward: '5W', room: '503', disease: '尿路感染症', codeStatus: 'full' }, 8);
   h.lastICDate = d(-8);
+  h.oral = [{ at: at(d(-8), '18:00'), npo: false, form: '五分粥', diet: '糖尿病食' }];
   med(h, { name: 'CEZ', cat: 'abx', start: d(-6), planDays: 7 });
   const hu = cul(h, '尿', d(-8));
   hu.gram = 'GNR';
@@ -178,6 +183,14 @@ export async function seedDemo() {
   flow(s, 'フェンタニル', d(-4), [[d(-4), '22:30', 1]]);
   flow(s, 'ヘパリン', d(-3), [[d(-3), '12:00', 2], [d(-1), '08:00', 2.5]]);
   flow(s, 'インスリン', d(-2), [[d(-2), '18:00', 2], [d(-1), '06:00', 1.5]]);
+  const fe = F.newFeed({ route: 'en', name: 'ペプタメン AF', packMl: 200, packKcal: 300, protein: 19.0, mode: 'cont', start: d(-2), at: at(d(-2), '10:00'), ml: 10 });
+  fe.changes.push({ at: at(d(-1), '10:00'), ml: 20 }, { at: at(t, '08:00'), ml: 40 });
+  s.feeds.push(fe);
+  const pn = F.newFeed({ route: 'pn', name: 'ビーフリード', packMl: 500, packKcal: 210, protein: 15, mode: 'bolus', start: d(-4), at: at(d(-4), '22:00'), packs: 2, times: 1 });
+  F.endFeed(pn, d(-1), at(d(-1), '20:00'));
+  s.feeds.push(pn);
+  s.oral = [{ at: at(d(-4), '22:00'), npo: true, form: '', diet: '' }];
+  s.handoffMemo = 'MAP 65 未満なら NAD を増量。';
   const sb = cul(s, '血液', d(-4), 2);
   sb.positiveSets = 2;
   sb.gram = 'GNR';

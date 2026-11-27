@@ -6,6 +6,8 @@ import { hashPin, verifyPin, createIdKeys, encryptId, openPrivate, decryptId, ch
 import { dayKey, addDays, diffDays, ymd, norm } from './util.js';
 import * as K from './meds.js';
 import { buildMorning, newTopic } from './notify.js';
+import * as F from './nutrition.js';
+import { handoffItems, dayStart } from './handoff.js';
 
 const results = [];
 const eq = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want });
@@ -200,6 +202,59 @@ async function run() {
   ok('0.3.0 のよく使う薬に組成を足す', K.upgradeFavMeds(oldFavs) && oldFavs[0].amount === 5 && !!K.findFav(oldFavs, 'ニカルジピン') && !K.upgradeFavMeds(oldFavs));
   eq('メインプロブレム（#1）', M.mainProblem({ problems: ['敗血症性ショック', 'AKI'], disease: '敗血症' }), '#1 敗血症性ショック');
   eq('メインプロブレム（病名）', M.mainProblem({ problems: [], disease: '腹痛' }), '腹痛');
+
+  // 栄養
+  const af = F.findFeedFav(F.defaultFavFeeds(), 'ペプタメン AF');
+  eq('ペプタメン AF は 1.5kcal/mL', F.kcalPerMl(af), 1.5);
+  const fc = F.newFeed({ ...af, mode: 'cont', ml: 40, at: Date.now() - 1000 });
+  eq('持続 40mL/h は 24時間で 1440kcal', Math.round(F.kcalDay(fc, F.feedAt(fc))), 1440);
+  eq('タンパク質（19g/200mL）', Math.round(F.proteinDay(fc, F.feedAt(fc)) * 10) / 10, 91.2);
+  const mar = F.findFeedFav(F.defaultFavFeeds(), 'MA-R2.0');
+  const fb = F.newFeed({ ...mar, mode: 'bolus', packs: 1, times: 3, at: Date.now() - 1000 });
+  eq('単回 1パック × 3回 ＝ 1500kcal', F.kcalDay(fb, F.feedAt(fb)), 1500);
+  eq('表示（パック × 回数）', F.changeText(fb, F.feedAt(fb)), '1パック × 3回');
+  const np = { feeds: [fc, fb], weight: 60 };
+  const tt = F.totals(np);
+  eq('合計と kcal/kg', [Math.round(tt.kcal), Math.round(tt.kcalPerKg * 10) / 10], [2940, 49]);
+  eq('タンパク質がわからない商品があれば出さない', tt.protein, null);
+  eq('ペプチーノ 1.0kcal/mL・アイソカル 400kcal/267mL', [F.kcalPerMl(F.findFeedFav(F.defaultFavFeeds(), 'ペプチーノ')), F.findFeedFav(F.defaultFavFeeds(), 'アイソカル サポート Bag').packKcal], [1, 400]);
+  const bf = F.findFeedFav(F.defaultFavFeeds(), 'ビーフリード');
+  eq('ビーフリード 500mL 210kcal・アミノ酸 15g', [bf.route, bf.packMl, bf.packKcal, bf.protein], ['pn', 500, 210, 15]);
+  F.endFeed(fc, ymd());
+  eq('終了すると 0mL/h', fc.changes[fc.changes.length - 1].ml, 0);
+  const op = { oral: [{ at: Date.parse(`${addDays(ymd(), -2)}T12:00:00`), npo: true }, { at: Date.parse(`${addDays(ymd(), -1)}T12:00:00`), npo: true }] };
+  eq('絶食3日目', F.npoDay(op), 3);
+  op.oral.push({ at: Date.now(), npo: false, form: '五分粥', diet: '糖尿病食' });
+  eq('経口の表示', F.oralText(F.oralNow(op)), '五分粥 ・ 糖尿病食');
+  F.setIntake(op, 5, '2026-11-27');
+  eq('摂取量', F.intakeToday(op, '2026-11-27'), 5);
+  ok('1枚目の栄養の1行', F.nutritionLine({ feeds: [F.newFeed({ ...af, mode: 'cont', ml: 40, start: addDays(ymd(), -1), at: Date.now() - 1000 })], oral: [] }).startsWith('経腸 ペプタメン AF 40mL/h'));
+
+  // 申し送り（今日＝朝6時から）
+  const now = Date.now();
+  const st = dayStart(now);
+  const hp = M.newPatient({ code: 'HOHO', nickname: 'x', ageBand: '70', sex: 'M', location: 'inpatient', admitDate: addDays(ymd(), -3) }, tpl);
+  const ht = M.newTask({ label: '胸部CT', group: 'inpatient' });
+  M.setState(ht, 'done');
+  ht.doneAt = st + 1000;
+  hp.tasks.push(ht);
+  const hOld = M.newTask({ label: '昨日の採血', group: 'inpatient' });
+  M.setState(hOld, 'done');
+  hOld.doneAt = st - 1000;
+  hp.tasks.push(hOld);
+  hp.tasks.push(M.newTask({ label: '持参薬の確認', group: 'inpatient' }));
+  const hNad = mk('NAD');
+  hNad.start = addDays(ymd(), -2);
+  hNad.rates.push({ at: st - 3600000, ml: 6 }, { at: st + 1000, ml: 3 });
+  hp.meds.push(hNad);
+  hp.weight = 50;
+  hp.devices.push({ type: 'Aライン', insertedDate: addDays(ymd(), -5), removedDate: M.today() });
+  hp.cultures.push(K.newCulture({ specimen: '尿', submitted: M.today() }));
+  const ho = handoffItems(hp, [], now);
+  ok('今日したこと：今日済んだタスクだけ', ho.done.includes('胸部CT 済') && !ho.done.some((x) => x.includes('昨日の採血')));
+  ok('介入：流量の変更', ho.acts.includes('NAD 0.2γ → 0.1γ'));
+  ok('介入：デバイス抜去と培養提出', ho.acts.includes('Aライン 抜去') && ho.acts.includes('尿培養 提出'));
+  ok('申し送ること：残りのタスクと結果待ち', ho.todo.some((x) => x.startsWith('持参薬の確認')) && ho.todo.some((x) => x.startsWith('尿培養 結果待ち')));
 
   // 過去へ移すと続いている薬は終わる
   const pm = M.newPatient({ code: 'MMMM', nickname: 'x', ageBand: '70', sex: 'M', location: 'inpatient', admitDate: addDays(ymd(), -3) }, tpl);

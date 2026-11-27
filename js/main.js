@@ -9,17 +9,19 @@ import { erListScreen, erPatientScreen, registerScreen } from './screens/er.js';
 import { inListScreen, inPatientScreen } from './screens/inpatient.js';
 import { labImportScreen, labConfirmScreen } from './screens/lab.js';
 import { followupScreen, pastScreen, pastViewScreen } from './screens/followup.js';
-import { settingsScreen, tplEditScreen, labItemsScreen, notifySettingsScreen, favMedsScreen, applyLook } from './screens/settings.js';
+import { settingsScreen, tplEditScreen, labItemsScreen, notifySettingsScreen, favMedsScreen, nutriSettingsScreen, applyLook } from './screens/settings.js';
 import { lockScreen, setupScreen, lock } from './screens/lock.js';
 import { graphScreen } from './screens/graph.js';
 import { cultureImportScreen, cultureConfirmScreen } from './screens/culture.js';
 import { clinicalActions } from './clinical.js';
+import { nutritionActions } from './nutriUI.js';
+import { handoffScreen } from './screens/handoff.js';
 import { changedSoon, changedNow, startNotify, flush } from './notify.js';
 
 const LOCK_AFTER_MS = 5 * 60 * 1000;
 
 register({
-  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
+  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, ...nutritionActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
   menu: menuScreen,
   erList: erListScreen,
   erPatient: erPatientScreen,
@@ -36,7 +38,9 @@ register({
   labItems: labItemsScreen,
   notifySettings: notifySettingsScreen,
   favMeds: favMedsScreen,
+  nutriSettings: nutriSettingsScreen,
   graph: graphScreen,
+  handoff: handoffScreen,
   cultureImport: cultureImportScreen,
   cultureConfirm: cultureConfirmScreen,
   lock: lockScreen,

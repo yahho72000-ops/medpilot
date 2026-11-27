@@ -10,6 +10,7 @@ import { setPage } from './inpatient.js';
 import * as ui from '../ui.js';
 import { wardRoomFields } from '../actions.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
+import { nutritionBlock, memoRow } from '../nutriUI.js';
 
 // ---- 一覧 ----
 export const erListScreen = {
@@ -82,6 +83,7 @@ export const erPatientScreen = {
       ${pageTabs(1)}
       <div class="ppage">
       ${profileCard(p)}
+      ${memoRow(p)}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('検査・説明')}
@@ -103,6 +105,8 @@ export const erPatientScreen = {
       <div class="card kvlist">${medsBlock(p)}</div>
       ${sec('培養', `<button class="mini" data-act="addCulture" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card clist">${culturesBlock(p)}</div>
+      ${sec('栄養')}
+      <div class="card kvlist">${nutritionBlock(p)}</div>
       ${sec('デバイス', `<button class="mini" data-act="addDevice" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card kvlist">${devicesBlock(p)}</div>
       </div>`;

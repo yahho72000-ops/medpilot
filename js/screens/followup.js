@@ -5,6 +5,7 @@ import { state, findPatient } from '../store.js';
 import * as M from '../model.js';
 import { header, chip, demo, codeText, patientCard, taskRow, labGrid, devicesBlock, sec, emptyState, missingChip, nick } from './common.js';
 import { medsBlock, culturesBlock } from '../clinical.js';
+import { nutritionBlock } from '../nutriUI.js';
 import * as K from '../meds.js';
 
 const firstDue = (p) => Math.min(
@@ -113,6 +114,7 @@ export const pastViewScreen = {
       <button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button>
       ${(p.meds || []).length ? `${sec('薬')}<div class="card kvlist">${medsBlock(p, { readonly: true })}</div>` : ''}
       ${(p.cultures || []).length ? `${sec('培養')}<div class="card clist">${culturesBlock(p, { readonly: true })}</div>` : ''}
+      ${(p.feeds || []).length || (p.oral || []).length ? `${sec('栄養')}<div class="card kvlist">${nutritionBlock(p, { readonly: true })}</div>` : ''}
       ${(p.devices || []).length ? `${sec('デバイス')}<div class="card kvlist">${devicesBlock(p, { readonly: true })}</div>` : ''}
       ${notes ? `${sec('経過メモ')}<div class="notes">${notes}</div>` : ''}
       ${tasks ? `${sec('タスク')}<div class="tlist">${tasks}</div>` : ''}
