@@ -1,6 +1,6 @@
 // 患者とタスクの決まりごと（画面に依存しない部分）
 
-import { uuid, ymd, dayKey, diffDays } from './util.js';
+import { uuid, ymd, dayKey, diffDays, addDays } from './util.js';
 import { openCultures, clinicalCount, endOpenMeds } from './meds.js';
 import { endOpenFeeds } from './nutrition.js';
 
@@ -199,6 +199,7 @@ export function newPatient(fields, templates) {
     handoffMemo: '',
     summaryText: '',
     summaryAt: null,
+    bloodDays: [],
     daily: {},
     lastICDate: null,
     outlook: null,
@@ -220,11 +221,66 @@ export const futureTasks = (p) =>
   p.tasks.filter((t) => isOpen(t) && t.dueDate && t.dueDate > today()).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
 
 // 毎日のチェック（回診・今日の採血）
+// 採血の予定日（p.bloodDays）に入っている日は、「今日の採血」が最初から「あり（確認未）」
 export function dailyGet(p, key = dayKey()) {
   const d = p.daily && p.daily[key];
   if (d) return d;
-  const bloodToday = p.tasks.some((t) => t.dueDate === ymd() && /採血/.test(t.label) && t.state !== 'none');
+  const bloodToday = (p.bloodDays || []).includes(key) || p.tasks.some((t) => t.dueDate === ymd() && /採血/.test(t.label) && t.state !== 'none');
   return { visit: 'todo', blood: bloodToday ? 'yes' : 'unknown' };
+}
+
+// ---- 採血の予定日・何日かまとめて作るタスク（0.8.0〜） ----
+export const isBloodName = (s) => ['血液検査', '採血'].includes(String(s || '').normalize('NFKC').replace(/\s/g, ''));
+export const bloodDaysFrom = (p, key = dayKey()) => (p.bloodDays || []).filter((d) => d >= key).sort();
+
+// 採血の予定日を決め直す（今日より前は30日分だけ残す）。今日を入れたら今日の採血を「あり（確認未）」に、外したら「未確認」に戻す
+export function setBloodDays(p, dates, key = dayKey()) {
+  const was = (p.bloodDays || []).includes(key);
+  const past = (p.bloodDays || []).filter((d) => d < key && d >= addDays(key, -30));
+  const next = [...new Set(dates.filter((d) => d >= key))].sort();
+  p.bloodDays = [...past, ...next];
+  const rec = p.daily && p.daily[key];
+  if (next.includes(key)) {
+    if (!rec || rec.blood === 'unknown' || rec.blood === 'none') dailySet(p, 'blood', 'yes', key);
+  } else if (was && rec && rec.blood === 'yes') {
+    dailySet(p, 'blood', 'unknown', key);
+  }
+}
+
+// 入院の手続きの「翌日以降の採血オーダー」を済にする（採血の日を選んだとき）
+export function markAdmitBlood(p) {
+  const t = (p.tasks || []).find((x) => x.group === 'admit' && /採血/.test(x.label) && isOpen(x));
+  if (t) setState(t, 'done');
+  return !!t;
+}
+
+// 日付つきのタスクを何日分か作る。3段階のものは「オーダー済（結果待ち）」から始める
+export function addDatedTasks(p, { label, steps = 2, kind = 'free', group = 'inpatient', dates = [] }) {
+  const made = [];
+  for (const d of [...new Set(dates)].sort()) {
+    const t = newTask({ label, steps, kind, group, dueDate: d });
+    if (t.steps === 3) t.state = 'ordered';
+    p.tasks.push(t);
+    made.push(t);
+  }
+  return made;
+}
+export const taskKind = (label) => (/^(Xp|X線|レントゲン|CT|MRI|エコー)/i.test(String(label).normalize('NFKC').trim()) ? 'image' : 'free');
+
+// 1枚目の「予定」：同じ名前の予定をまとめて1行に（採血の予定日も1行）
+export function planGroups(p, keep = () => true, key = dayKey()) {
+  const groups = new Map();
+  for (const t of futureTasks(p).filter(keep)) {
+    const k = String(t.label).normalize('NFKC').trim();
+    if (!groups.has(k)) groups.set(k, { key: k, label: t.label, dates: [], tasks: [] });
+    const g = groups.get(k);
+    g.tasks.push(t);
+    if (!g.dates.includes(t.dueDate)) g.dates.push(t.dueDate);
+  }
+  const out = [...groups.values()];
+  const blood = (p.bloodDays || []).filter((d) => d > key).sort();
+  if (blood.length && p.location === 'inpatient') out.push({ key: '__blood', label: '血液検査', dates: blood, tasks: [], blood: true });
+  return out.sort((a, b) => (a.dates[0] < b.dates[0] ? -1 : a.dates[0] > b.dates[0] ? 1 : 0));
 }
 
 export function dailySet(p, field, value, key = dayKey()) {
@@ -354,6 +410,8 @@ export function admitNow(p, templates, { ward, room, date }) {
   p.location = 'inpatient';
   p.admitDate = date || today();
   p.ending = null;
+  // 先に採血の日を選んであれば「翌日以降の採血オーダー」は済
+  if (bloodDaysFrom(p).length) markAdmitBlood(p);
 }
 
 export function moveToInpatient(p) {

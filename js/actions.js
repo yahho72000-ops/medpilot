@@ -1,6 +1,7 @@
 // 患者まわりの共通の操作（どの画面からでも使う）
 
-import { esc, ymd, addDays, md, mdw, $ } from './util.js';
+import { esc, ymd, addDays, md, mdw, dayKey, $, $$ } from './util.js';
+import { calendarHtml, calSelected, toggleCalDay } from './calendar.js';
 import { state, findPatient, savePatient, removePatient, saveMeta, remember, wipeIds } from './store.js';
 import * as M from './model.js';
 import * as ui from './ui.js';
@@ -119,6 +120,102 @@ async function taskSheet(p, { title = 'タスクを追加', withDate = false, de
   return ui.custom(html);
 }
 
+// 入院患者のタスクの小窓：名前（血液検査・Xp はボタン）・段階・日付（今日／カレンダーで何日でも）
+const PRESETS = ['血液検査', 'Xp'];
+function taskSheetMulti() {
+  const sug = (state.meta.history.tasks || []).filter((s) => !PRESETS.includes(s) && !M.isBloodName(s)).slice(0, 10);
+  const chips = [...PRESETS, ...sug].map((s) => `<button class="pill" data-act="taskPreset" data-v="${esc(s)}">${esc(s)}</button>`).join('');
+  const pr = ui.custom(`<div class="sheet-title">タスクを追加</div>
+    <label class="lbl" for="sheet-input">名前</label>
+    <input id="sheet-input" type="text" autocomplete="off" placeholder="例：Xp、喀痰培養の提出">
+    <div class="chips-row">${chips}</div>
+    <div id="ts-blood" class="card small hidden">選んだ日の「今日の採血」が「あり（確認未）」になります（タスクにはなりません）。</div>
+    <div id="ts-steps"><div class="lbl">段階</div>
+      <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 結果 → 確認</button></div></div>
+    <div class="lbl">日付</div>
+    <div class="seg" data-pick="when"><button class="on" data-act="pick" data-v="today">今日</button><button data-act="pick" data-v="dates">日付を選ぶ（何日でも）</button></div>
+    <div id="ts-cal" class="hidden">${calendarHtml([])}<div class="muted small" id="ts-cal-note">3段階のものは「オーダー済（結果待ち）」から始まります。</div></div>
+    <div class="warn-a small">${TASK_NAME_NOTE}</div>
+    <div class="err" id="sheet-err"></div>
+    <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="taskOkMulti">追加する</button></div>`);
+  $('#sheet-input').addEventListener('input', updateTaskSheet);
+  $('.seg[data-pick="when"]').addEventListener('picked', (e) => $('#ts-cal').classList.toggle('hidden', e.detail.value !== 'dates'));
+  return pr;
+}
+function updateTaskSheet() {
+  const blood = M.isBloodName($('#sheet-input').value);
+  $('#ts-blood').classList.toggle('hidden', !blood);
+  $('#ts-steps').classList.toggle('hidden', blood);
+  $('#ts-cal-note').classList.toggle('hidden', blood);
+}
+
+// 日を選び直す小窓（予定の行・採血の日・入院の手続きの採血から）
+function datesSheet(title, selected, { note = '', extra = [] } = {}) {
+  return ui.custom(`<div class="sheet-title">${esc(title)}</div>
+    ${note ? `<div class="muted small">${esc(note)}</div>` : ''}
+    ${calendarHtml(selected)}
+    <div class="muted small">外した日の予定は消えます。</div>
+    <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="datesOk">決める</button></div>
+    ${extra.map(([v, l]) => `<button class="btn3" data-act="sheetChoose" data-v="${v}">${esc(l)}</button>`).join('')}`);
+}
+
+async function addInpatientTask(p) {
+  const r = await taskSheetMulti();
+  if (!r) return;
+  if (r.blood) {
+    const key = dayKey();
+    const dates = r.dates || [key];
+    const before = { days: [...(p.bloodDays || [])], daily: JSON.parse(JSON.stringify(p.daily || {})), tasks: p.tasks.map((t) => ({ t, state: t.state, doneAt: t.doneAt })) };
+    M.setBloodDays(p, [...M.bloodDaysFrom(p, key), ...dates], key);
+    const admit = M.markAdmitBlood(p);
+    await savePatient(p);
+    render();
+    ui.toast(`血液検査：${dates.map(md).join('・')}${admit ? '（入院の手続きも済）' : ''}`, async () => {
+      p.bloodDays = before.days;
+      p.daily = before.daily;
+      for (const x of before.tasks) { x.t.state = x.state; x.t.doneAt = x.doneAt; }
+      await savePatient(p);
+      render();
+    });
+    if (admit && M.progress(p)) await afterChange(p);
+    return;
+  }
+  const kind = M.taskKind(r.label);
+  if (r.dates) M.addDatedTasks(p, { label: r.label, steps: r.steps, kind, group: 'inpatient', dates: r.dates });
+  else p.tasks.push(M.newTask({ label: r.label, steps: r.steps, kind, group: 'inpatient' }));
+  await remember('tasks', r.label);
+  await savePatient(p);
+  render();
+  if (r.dates) ui.toast(`${r.label}：${r.dates.map(md).join('・')}`);
+}
+
+// 採血の日を選び直す。admitTask があれば（入院の手続きの採血）、日を選ぶとその手続きは済
+async function editBloodDays(p, admitTask = null) {
+  const key = dayKey();
+  const extra = admitTask ? [['__done', '日を選ばずに済にする'], ['__more', 'ほかの操作（名前・削除など）']] : [];
+  const v = await datesSheet(admitTask ? admitTask.label : '血液検査の日', M.bloodDaysFrom(p, key), { note: '選んだ日の「今日の採血」が「あり（確認未）」になります。', extra });
+  if (v === null || v === undefined) return 'cancel';
+  if (v === '__more') return 'more';
+  const before = { days: [...(p.bloodDays || [])], daily: JSON.parse(JSON.stringify(p.daily || {})), admit: admitTask ? [admitTask.state, admitTask.doneAt] : null };
+  if (v === '__done') M.setState(admitTask, 'done');
+  else {
+    M.setBloodDays(p, v, key);
+    if (v.length) { if (admitTask) M.setState(admitTask, 'done'); else M.markAdmitBlood(p); }
+  }
+  await savePatient(p);
+  render();
+  const msg = v === '__done' ? `${admitTask.label}：済` : v.length ? `血液検査：${v.map(md).join('・')}` : '血液検査の予定を消しました';
+  ui.toast(msg, async () => {
+    p.bloodDays = before.days;
+    p.daily = before.daily;
+    if (admitTask) { admitTask.state = before.admit[0]; admitTask.doneAt = before.admit[1]; }
+    await savePatient(p);
+    render();
+  });
+  if (M.progress(p)) await afterChange(p);
+  return 'done';
+}
+
 function groupFor(p) {
   if (p.location === 'followup') return 'followup';
   if (p.location === 'inpatient') return 'inpatient';
@@ -229,6 +326,11 @@ export const patientActions = {
     const p = P(ds);
     const t = T(p, ds);
     if (!t) return;
+    // 入院の手続きの「翌日以降の採血オーダー」：採血の日を選ぶカレンダーを開く
+    if (t.group === 'admit' && /採血/.test(t.label) && M.isOpen(t) && p.location === 'inpatient') {
+      const r = await editBloodDays(p, t);
+      if (r !== 'more') return;
+    }
     const states = M.stateChoices(t).map(([k, l]) => ({ v: `s:${k}`, label: l, tone: k === t.state ? 'btn' : 'btn2' }));
     const more = [];
     if (t.steps === 3 && t.state === 'ordered' && N.canNotify()) more.push({ v: 'timer', label: t.timer && t.timer.at > Date.now() ? `タイマーを変える（${clock(t.timer.at)} に通知）` : 'タイマーを付ける', tone: 'btn3' });
@@ -310,9 +412,10 @@ export const patientActions = {
 
   async addTask(ds) {
     const p = P(ds);
+    if (p.location === 'inpatient') return addInpatientTask(p);
     const withDate = p.location !== 'er';
     const def = p.location === 'followup' ? addDays(ymd(), 3) : '';
-    const r = await taskSheet(p, { withDate, defaultDate: def, title: ds.dated ? '日付つきの予定を追加' : 'タスクを追加' });
+    const r = await taskSheet(p, { withDate, defaultDate: def, title: 'タスクを追加' });
     if (!r) return;
     p.tasks.push(M.newTask({ label: r.label, steps: r.steps, kind: 'free', group: groupFor(p), dueDate: r.dueDate || (p.location === 'followup' ? def : null) }));
     await remember('tasks', r.label);
@@ -333,6 +436,56 @@ export const patientActions = {
 
   dateOk() {
     ui.resolveSheet($('#sheet-date').value || '');
+  },
+
+  // ---- 入院患者のタスク（何日でも）・採血の日 ----
+  taskPreset(ds) {
+    $('#sheet-input').value = ds.v;
+    if (M.taskKind(ds.v) === 'image') {
+      $$('.seg[data-pick="steps"] [data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === '3'));
+    }
+    updateTaskSheet();
+  },
+  taskOkMulti() {
+    const label = ($('#sheet-input').value || '').trim();
+    if (!label) return void ($('#sheet-err').textContent = '名前を入れてください');
+    const when = $('.seg[data-pick="when"] .on');
+    const dates = when && when.dataset.v === 'dates' ? calSelected() : null;
+    if (dates && !dates.length) return void ($('#sheet-err').textContent = '日を選んでください');
+    const on = $('.seg[data-pick="steps"] .on');
+    ui.resolveSheet({ label, steps: on ? Number(on.dataset.v) : 2, dates, blood: M.isBloodName(label) });
+  },
+  calDay(ds, el) { toggleCalDay(el); },
+  datesOk() { ui.resolveSheet(calSelected()); },
+
+  // 1枚目の「予定」の行：日を選び直す
+  async tapPlanGroup(ds) {
+    const p = P(ds);
+    if (ds.blood) { await editBloodDays(p); return; }
+    const key = dayKey();
+    const same = (t) => String(t.label).normalize('NFKC').trim() === ds.k && M.isOpen(t) && t.dueDate && t.dueDate >= key && t.group !== 'admit';
+    const tasks = p.tasks.filter(same);
+    if (!tasks.length) return;
+    const first = tasks[0];
+    const cur = [...new Set(tasks.map((t) => t.dueDate))].sort();
+    const v = await datesSheet(first.label, cur, { note: first.steps === 3 ? '足した日は「オーダー済（結果待ち）」から始まります。' : '', extra: [['__rename', '名前を変える']] });
+    if (v === null || v === undefined) return;
+    if (v === '__rename') {
+      const name = await ui.promptText({ title: '名前を変える', value: first.label, note: TASK_NAME_NOTE });
+      if (!name) return;
+      for (const t of tasks) t.label = name;
+      await savePatient(p);
+      render();
+      return;
+    }
+    const before = p.tasks.slice();
+    const keep = new Set(v);
+    p.tasks = p.tasks.filter((t) => !(same(t) && !keep.has(t.dueDate)));
+    M.addDatedTasks(p, { label: first.label, steps: first.steps, kind: first.kind, group: first.group, dates: v.filter((d) => !cur.includes(d)) });
+    for (const t of before) if (!p.tasks.includes(t) && t.timer) await N.clearTaskTimer(t);
+    await savePatient(p);
+    render();
+    ui.toast(v.length ? `${first.label}：${v.map(md).join('・')}` : `${first.label} の予定を消しました`, async () => { p.tasks = before; await savePatient(p); render(); });
   },
 
   // 同じグループのボタンの中で 1 つを選ぶ（再描画しない）

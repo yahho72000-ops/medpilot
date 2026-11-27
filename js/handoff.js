@@ -112,9 +112,9 @@ export function handoffItems(p, labItems = [], now = Date.now()) {
     todo.push(`${K.cultureTitle(c)} ${s.short}${c.due ? `（確認 ${c.due <= day ? '今日' : md(c.due)}）` : ''}`);
   }
   const limit = addDays(day, 3);
-  for (const t of (p.tasks || []).filter((x) => M.isOpen(x) && x.dueDate && x.dueDate > day && x.dueDate <= limit).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))) {
-    todo.push(`${mdw(t.dueDate)} ${t.label}`);
-  }
+  const soon = (p.tasks || []).filter((x) => M.isOpen(x) && x.dueDate && x.dueDate > day && x.dueDate <= limit).map((t) => [t.dueDate, t.label]);
+  if (p.location === 'inpatient') for (const d of p.bloodDays || []) if (d > day && d <= limit) soon.push([d, '血液検査']);
+  for (const [d, label] of soon.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) todo.push(`${mdw(d)} ${label}`);
   if (M.icWarn(p)) todo.push(`家族IC ${M.icDays(p)}日前（7日超）`);
   for (const dv of M.activeDevices(p).filter(M.deviceWarn)) todo.push(`${dv.type} 留置${M.deviceDay(dv)}日目（14日超）`);
 

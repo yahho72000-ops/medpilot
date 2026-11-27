@@ -461,6 +461,39 @@ async function run() {
   eq('培養：テンプレートの文があっても同じ', K.parseCultureText(`${K.CULTURE_PROMPT}\n${ct2}`).organisms.map((o) => o.sens.length), [3]);
   eq('培養 陰性（病院の AI の形）', K.parseCultureText('【MedPilot 培養】\n検体：尿\n菌：陰性\n【おわり】').negative, true);
 
+  // 採血の予定日・何日かまとめて作るタスク（0.8.0）
+  ok('血液検査・採血は採血の予定', M.isBloodName('血液検査') && M.isBloodName(' 採 血') && !M.isBloodName('血液培養') && !M.isBloodName('Xp'));
+  const bk = dayKey();
+  const bp = M.newPatient({ code: 'BLD1', location: 'inpatient' }, tpl);
+  eq('予定がなければ今日の採血は未確認', M.dailyGet(bp).blood, 'unknown');
+  M.setBloodDays(bp, [addDays(bk, 2), bk, addDays(bk, -1), addDays(bk, 2)], bk);
+  eq('採血の日（過去は入れない・重なりなし）', bp.bloodDays, [bk, addDays(bk, 2)]);
+  eq('今日を選ぶと今日の採血は「あり（確認未）」', M.dailyGet(bp).blood, 'yes');
+  eq('予定の日は最初から「あり（確認未）」', M.dailyGet(bp, addDays(bk, 2)).blood, 'yes');
+  eq('予定でない日は未確認のまま', M.dailyGet(bp, addDays(bk, 1)).blood, 'unknown');
+  M.setBloodDays(bp, [addDays(bk, 2)], bk);
+  eq('今日を外すと未確認に戻す', M.dailyGet(bp).blood, 'unknown');
+  M.dailySet(bp, 'blood', 'done');
+  M.setBloodDays(bp, [bk, addDays(bk, 2)], bk);
+  eq('確認済は変えない', M.dailyGet(bp).blood, 'done');
+  const made = M.addDatedTasks(bp, { label: 'Xp', steps: 3, kind: M.taskKind('Xp'), dates: [addDays(bk, 3), addDays(bk, 1), addDays(bk, 3)] });
+  eq('Xp は日ごとに「オーダー済」で作る', made.map((t) => `${t.dueDate}|${t.state}|${t.kind}|${t.group}`), [`${addDays(bk, 1)}|ordered|image|inpatient`, `${addDays(bk, 3)}|ordered|image|inpatient`]);
+  M.addDatedTasks(bp, { label: '創部チェック', steps: 2, dates: [addDays(bk, 2)] });
+  eq('予定は名前ごとに1行（採血も1行）', M.planGroups(bp, () => true, bk).map((g) => `${g.label}:${g.dates.map((x) => x.slice(5)).join(',')}`), [`Xp:${addDays(bk, 1).slice(5)},${addDays(bk, 3).slice(5)}`, `創部チェック:${addDays(bk, 2).slice(5)}`, `血液検査:${addDays(bk, 2).slice(5)}`]);
+  const bAd = M.newPatient({ code: 'ADM1', location: 'er' }, tpl);
+  M.admitNow(bAd, { admit: ['入院決定', '翌日以降の採血オーダー'] }, { ward: '5E', room: '501' });
+  ok('入院の手続き：採血の日がなければ残る', bAd.tasks.find((t) => /採血/.test(t.label)).state === 'todo');
+  M.setBloodDays(bAd, [addDays(bk, 1)], bk);
+  ok('採血の日を選ぶと「翌日以降の採血オーダー」は済', M.markAdmitBlood(bAd) && bAd.tasks.find((t) => /採血/.test(t.label)).state === 'done');
+  const bAd2 = M.newPatient({ code: 'ADM2', location: 'er' }, tpl);
+  bAd2.bloodDays = [addDays(bk, 1)];
+  M.admitNow(bAd2, { admit: ['翌日以降の採血オーダー'] }, { ward: '5E', room: '502' });
+  ok('先に採血の日を選んでいれば、入院のときに済', bAd2.tasks.find((t) => t.group === 'admit').state === 'done');
+  const bm = buildMorning([bp, { ...bAd, code: 'ADM1' }], addDays(bk, 2));
+  ok('朝のまとめに今日の採血', /今日の採血：1人（BLD1）/.test(bm.message));
+  const bh = handoffItems(bp, [], Date.now());
+  ok('申し送り：3日以内の採血と Xp', bh.todo.some((x) => /血液検査$/.test(x)) && bh.todo.some((x) => /Xp$/.test(x)));
+
   const pass = results.filter((r) => r.ok).length;
   const lines = results.map((r) => `${r.ok ? 'OK ' : 'NG '} ${r.name}${r.ok ? '' : `\n     got:  ${JSON.stringify(r.got)}\n     want: ${JSON.stringify(r.want)}`}`);
   document.getElementById('out').textContent = `${pass} / ${results.length} 合格\n\n${lines.join('\n')}`;

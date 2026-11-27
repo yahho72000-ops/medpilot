@@ -360,3 +360,13 @@ body.private #privacy { display: flex; }
 .ck-row.off { opacity: .55; }
 .ck-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sum-text { white-space: pre-wrap; line-height: 1.55; }
+
+/* カレンダー（何日でも選ぶ・0.8.0） */
+.cal { display: flex; flex-direction: column; gap: 6px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-head { text-align: center; font-size: .75rem; color: var(--sub); padding: 2px 0; }
+.cal-day { min-height: 40px; padding: 0; border-radius: 10px; border: 1px solid var(--line2); background: transparent; color: var(--text); font-size: .9rem; }
+.cal-day.today { border-color: var(--text); font-weight: 700; }
+.cal-day.on { background: var(--btn-bg); color: var(--btn-tx); border-color: var(--btn-bg); font-weight: 700; }
+.cal-head.sun, .cal-day.sun:not(.on) { color: var(--r-tx); }
+.cal-head.sat, .cal-day.sat:not(.on) { color: #5ea8ff; }

@@ -15,7 +15,7 @@ import * as F from '../nutrition.js';
 import { backupDays } from '../backup.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.7.2';
+export const APP_VERSION = '0.8.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;

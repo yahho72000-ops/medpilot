@@ -169,6 +169,8 @@ export function buildMorning(patients, day) {
     }
   }
   const lines = [`回診 ${inp.length}人`];
+  const blood = inp.filter((p) => (p.bloodDays || []).includes(day)).map((p) => p.code);
+  if (blood.length) lines.push(`今日の採血：${blood.length}人（${blood.join('・')}）`);
   if (plan.length) lines.push('', `今日の予定（${plan.length}）`, ...plan.map((x) => `・${x}`));
   else lines.push('', '今日の予定なし');
   if (ic.length) lines.push('', `IC 7日超：${ic.join('、')}`);

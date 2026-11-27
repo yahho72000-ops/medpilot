@@ -124,7 +124,7 @@ export const inPatientScreen = {
     const doneToday = (t) => !M.isOpen(t) && t.group === 'inpatient' && t.doneAt && dayKey(new Date(t.doneAt)) === todayKey;
     const listGroup = p.ending && (M.IN_ENDINGS[p.ending.type] || {}).list;
     const todayTasks = p.tasks.filter((t) => t.group !== listGroup && t.group !== 'admit' && ((M.isOpen(t) && M.isDueNow(t)) || doneToday(t)));
-    const future = M.futureTasks(p).filter((t) => t.group !== listGroup && t.group !== 'admit');
+    const plans = M.planGroups(p, (t) => t.group !== listGroup && t.group !== 'admit');
     const listTasks = listGroup ? p.tasks.filter((t) => t.group === listGroup) : [];
     // 入院の手続き：まだ残っている間だけ表示する
     const admitTasks = p.tasks.filter((t) => t.group === 'admit');
@@ -154,8 +154,8 @@ export const inPatientScreen = {
       ${admitOpen ? `${sec(`入院の手続き（残り${admitOpen}）`)}<div class="tlist">${admitTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('今日のタスク（朝6時にリセット）')}
       <div class="tlist">${dailyRows(p)}${clinicalTodayRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
-      ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}
-      <div class="grid2"><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスク</button><button class="btn2" data-act="addTask" data-pid="${p.id}" data-dated="1">＋ 日付つき予定</button></div>
+      ${plans.length ? `<div class="future">${plans.map((g) => `<div class="frow" data-act="tapPlanGroup" data-pid="${p.id}" data-k="${esc(g.key)}" ${g.blood ? 'data-blood="1"' : ''}>予定　${esc(g.label)}　${g.dates.map((d) => (g.dates.length === 1 ? mdw(d) : md(d))).join('・')}</div>`).join('')}</div>` : ''}
+      <button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスク</button>
       ${p.ending ? '' : `<button class="btn3" data-act="inEnd" data-pid="${p.id}">終わり方を選ぶ（退院・転院・転科・死亡）</button>`}
       <div class="muted small center">左右にスワイプで「詳細」へ</div>
       </div>`;

@@ -96,6 +96,8 @@ export async function seedDemo() {
   T(e, '持参薬の再開を検討', 'todo', { group: 'inpatient' });
   T(e, '嚥下評価', 'todo', { group: 'inpatient', due: d(1) });
   T(e, '胸部CT', 'todo', { group: 'inpatient', due: d(4) });
+  M.addDatedTasks(e, { label: 'Xp', steps: 3, kind: 'image', group: 'inpatient', dates: [d(2), d(5)] });
+  e.bloodDays = [d(0), d(2), d(5)];
   M.dailySet(e, 'visit', 'done');
   M.dailySet(e, 'blood', 'yes');
   labs(e, d(-6), [['WBC', 152, 'H'], ['CRP', 12.5, 'H'], ['Alb', 2.8, 'L'], ['Hb', 10.4, 'L'], ['Plt', 18.1, ''], ['Cre', 0.66, '']]);
