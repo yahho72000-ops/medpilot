@@ -134,7 +134,8 @@ export const setupScreen = {
           <div class="err" id="pass-err"></div>
         </div>
         <button class="btn" data-act="setupPass">設定する</button>
-        <button class="btn3" data-act="skipPass">あとで設定する</button></div>`;
+        <button class="btn3" data-act="skipPass">あとで設定する</button>
+        ${mode === 'change' ? '' : '<div class="card stack"><div class="small">機種変更などで、前の iPhone のバックアップがあるときは、ここから戻せます（合言葉はバックアップのものになります）。</div><button class="btn2" data-act="restoreBackup">バックアップから戻す</button></div>'}</div>`;
     }
     return '';
   },

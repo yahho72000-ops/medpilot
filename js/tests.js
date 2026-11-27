@@ -8,6 +8,7 @@ import * as K from './meds.js';
 import { buildMorning, newTopic } from './notify.js';
 import * as F from './nutrition.js';
 import { handoffItems, dayStart } from './handoff.js';
+import { makePayload, sealBackup, openBackup } from './backup.js';
 
 const results = [];
 const eq = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want });
@@ -353,6 +354,23 @@ async function run() {
   ok('同じ ID でも毎回違う暗号文', c1 !== ct);
   const code = randomCode(new Set());
   ok('識別番号は4文字・紛らわしい文字なし', code.length === 4 && [...code].every((ch) => CODE_CHARS.includes(ch)));
+
+  // バックアップ（合言葉で暗号化 → 戻す）
+  const bkMeta = { security: { pin: { salt: 'x', hash: 'y' } }, settings: { theme: 'dark', demo: true, notify: { topic: 't' } }, templates: { er: [] }, labItems: [], idKeys: keys, favMeds: [], notifyQueue: [1], notifyState: { morning: { a: 1 } } };
+  const bkPatients = [{ id: 'p1', code: 'ABCD', nickname: 'テスト', encId: 'enc', labs: [] }];
+  const payload = makePayload(bkMeta, bkPatients, 1795700000000, '0.6.0');
+  ok('PIN・通知の送り待ちは入れない', !payload.meta.security && !payload.meta.notifyQueue && !payload.meta.notifyState);
+  ok('デモはオフで入れる・ID の鍵は入れる', payload.meta.settings.demo === false && !!payload.meta.idKeys && bkMeta.settings.demo === true);
+  const sealed = await sealBackup(payload, 'correct horse battery');
+  ok('ファイルの外から患者は見えない', !/ABCD|テスト|enc/.test(sealed) && JSON.parse(sealed).format === 'medpilot-backup');
+  const back = await openBackup(sealed, 'correct horse battery');
+  eq('同じ合言葉で戻せる', [back.patients[0].code, back.meta.settings.notify.topic, back.createdAt], ['ABCD', 't', 1795700000000]);
+  let bkErr = '';
+  try { await openBackup(sealed, 'wrong passphrase!!'); } catch (e) { bkErr = e.message; }
+  ok('違う合言葉では戻せない', /合言葉が違います/.test(bkErr));
+  bkErr = '';
+  try { await openBackup('{"hello":1}', 'x'); } catch (e) { bkErr = e.message; }
+  ok('バックアップでないファイル', /バックアップファイルではありません/.test(bkErr));
 
   const pass = results.filter((r) => r.ok).length;
   const lines = results.map((r) => `${r.ok ? 'OK ' : 'NG '} ${r.name}${r.ok ? '' : `\n     got:  ${JSON.stringify(r.got)}\n     want: ${JSON.stringify(r.want)}`}`);

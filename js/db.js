@@ -34,6 +34,21 @@ export const put = (db, store, value, key) =>
 export const del = (db, store, key) => request(db, store, 'readwrite', (s) => s.delete(key));
 export const clear = (db, store) => request(db, store, 'readwrite', (s) => s.clear());
 
+// まとめて入れ替える（1つの処理で：途中で失敗したら何も変わらない）
+export function replaceAll(db, { patients, meta }) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['patients', 'meta'], 'readwrite');
+    const ps = tx.objectStore('patients');
+    ps.clear();
+    for (const p of patients) ps.put(p);
+    const ms = tx.objectStore('meta');
+    for (const [k, v] of Object.entries(meta)) ms.put(v, k);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 export function deleteDB(name) {
   return new Promise((resolve) => {
     const req = indexedDB.deleteDatabase(name);

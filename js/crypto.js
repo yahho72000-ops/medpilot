@@ -62,6 +62,21 @@ async function unwrapPrivate(keys, pass) {
   return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(keys.iv) }, key, unb64(keys.encPrivateKey));
 }
 
+// ---- バックアップ：文字列を合言葉で暗号化（AES-GCM、鍵は PBKDF2 60万回）----
+export async function encryptWithPass(text, pass) {
+  const salt = randBytes(16);
+  const iv = randBytes(12);
+  const key = await aesFromPass(pass, salt, PASS_ITER);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(text));
+  return { salt: b64(salt), iv: b64(iv), iter: PASS_ITER, data: b64(ct) };
+}
+
+// 合言葉が違う・ファイルが壊れていると例外になる
+export async function decryptWithPass(box, pass) {
+  const key = await aesFromPass(pass, unb64(box.salt), box.iter || PASS_ITER);
+  return td.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, key, unb64(box.data)));
+}
+
 // ---- 郵便ポスト方式（入れる鍵と取り出す鍵が別） ----
 const RSA = { name: 'RSA-OAEP', hash: 'SHA-256' };
 

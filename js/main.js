@@ -15,13 +15,14 @@ import { graphScreen } from './screens/graph.js';
 import { cultureImportScreen, cultureConfirmScreen } from './screens/culture.js';
 import { clinicalActions } from './clinical.js';
 import { nutritionActions } from './nutriUI.js';
+import { backupActions } from './backup.js';
 import { handoffScreen } from './screens/handoff.js';
 import { changedSoon, changedNow, startNotify, flush } from './notify.js';
 
 const LOCK_AFTER_MS = 5 * 60 * 1000;
 
 register({
-  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, ...nutritionActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
+  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, ...nutritionActions, ...backupActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
   menu: menuScreen,
   erList: erListScreen,
   erPatient: erPatientScreen,

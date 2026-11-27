@@ -12,9 +12,10 @@ import * as ui from '../ui.js';
 import * as N from '../notify.js';
 import * as K from '../meds.js';
 import * as F from '../nutrition.js';
+import { backupDays } from '../backup.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.5.1';
+export const APP_VERSION = '0.6.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -43,6 +44,14 @@ export const settingsScreen = {
         ${row('changePin', 'PIN を変える')}
         ${row('changePassphrase', state.meta.idKeys ? '合言葉を変える' : '合言葉を設定する')}
         ${row('lockNow', '今すぐロック')}
+      </div>
+      ${sec('バックアップ')}
+      <div class="card stack">
+        <div class="muted small">データはこの iPhone の中だけにあります。合言葉で暗号化したファイルに書き出して、「ファイル」→「この iPhone 内」に保存しておくと、アイコンを消してしまったときや機種変更のときに戻せます。</div>
+        <div>${backupDays() === null ? '<span class="warn-a">まだバックアップしていません</span>' : `最後のバックアップ：${backupDays() === 0 ? '今日' : `${backupDays()}日前`}`}</div>
+        <button class="btn" data-act="exportBackup">バックアップを書き出す</button>
+        <button class="btn3" data-act="restoreBackup">バックアップから戻す</button>
+        <div class="muted tiny">戻すと、今のデータは全部置き換わります。戻すには、バックアップを作ったときの合言葉が必要です。</div>
       </div>
       ${sec('通知')}
       <div class="card kvlist">

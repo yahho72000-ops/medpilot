@@ -30,7 +30,7 @@ export const DEFAULT_NOTIFY = {
   again: 30,
 };
 const DEFAULT_SETTINGS = { theme: 'dark', font: 'm', inpatientSort: 'days', demo: false, graphItems: ['WBC', 'CRP'] };
-const META_KEYS = ['security', 'settings', 'templates', 'labItems', 'history', 'idKeys', 'favMeds', 'notifyQueue', 'notifyState', 'favFeeds', 'diet'];
+const META_KEYS = ['security', 'settings', 'templates', 'labItems', 'history', 'idKeys', 'favMeds', 'notifyQueue', 'notifyState', 'favFeeds', 'diet', 'backupInfo'];
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -52,6 +52,7 @@ export async function init() {
   else if (upgradeFavMeds(state.meta.favMeds)) await saveMeta('favMeds');
   if (!state.meta.favFeeds) state.meta.favFeeds = defaultFavFeeds();
   if (!state.meta.diet) state.meta.diet = { forms: [...DEFAULT_DIET_FORMS], types: [...DEFAULT_DIET_TYPES] };
+  if (!state.meta.backupInfo) state.meta.backupInfo = { lastAt: null };
   if (!state.meta.notifyQueue) state.meta.notifyQueue = [];
   if (!state.meta.notifyState) state.meta.notifyState = { morning: {} };
   await openData(!!state.meta.settings.demo);

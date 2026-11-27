@@ -88,6 +88,7 @@ button:disabled { opacity: .4; cursor: default; }
 .alert { background: var(--r-bg); border-radius: 14px; padding: 12px 14px; }
 .alert-title { color: var(--r-tx); font-weight: 700; }
 .alert-text { color: var(--r-tx); font-size: .85rem; opacity: .9; }
+.alert-btn { width: 100%; border: none; text-align: left; display: block; font: inherit; }
 .hint { background: var(--card); border: 1px dashed var(--line2); color: var(--sub); border-radius: 12px; padding: 10px 12px; font-size: .82rem; }
 .empty { color: var(--sub); text-align: center; padding: 36px 0; }
 .bottom-space { height: 64px; }

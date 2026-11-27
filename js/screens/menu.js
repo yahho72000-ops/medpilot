@@ -4,6 +4,7 @@ import { esc, todayJa } from '../util.js';
 import { state } from '../store.js';
 import * as M from '../model.js';
 import { go } from '../router.js';
+import { backupDays } from '../backup.js';
 
 function counts() {
   const ps = state.patients;
@@ -33,6 +34,14 @@ export const menuScreen = {
     const alertBox = alerts.length
       ? `<div class="alert"><div class="alert-title">要注意 ${c.ic + c.dev + c.due}件</div><div class="alert-text">${esc(alerts.join(' ・ '))}</div></div>`
       : '';
+    // バックアップ：7日たったら（またはまだなら）赤で知らせる
+    const bd = backupDays();
+    const hasData = !state.demo && state.patients.length > 0;
+    const backupBox = bd === null
+      ? (hasData ? '<button class="alert alert-btn" data-act="goBackup"><div class="alert-title">まだバックアップしていません</div><div class="alert-text">設定 → バックアップ から書き出せます</div></button>' : '')
+      : bd >= 7
+        ? `<button class="alert alert-btn" data-act="goBackup"><div class="alert-title">最後のバックアップ：${bd}日前</div><div class="alert-text">設定 → バックアップ から書き出せます</div></button>`
+        : `<div class="muted small">最後のバックアップ：${bd === 0 ? '今日' : `${bd}日前`}</div>`;
     const install = standalone()
       ? ''
       : '<div class="hint">ホーム画面に追加すると、アプリとして使えます（Safari の共有ボタン →「ホーム画面に追加」）。</div>';
@@ -50,6 +59,7 @@ export const menuScreen = {
         ${tile('goPast', '過去の一覧', c.past, '人')}
         ${tile('goSettings', '設定', null, '', '色・PIN・ひな形')}
       </div>
+      ${backupBox}
       <div class="center"><button class="btn2 wide-auto" data-act="lockNow">ロックする</button></div>`;
   },
   actions: {
@@ -59,5 +69,6 @@ export const menuScreen = {
     goPast() { go('past'); },
     goHandoff() { go('handoff', { tab: 'er' }); },
     goSettings() { go('settings'); },
+    goBackup() { go('settings'); },
   },
 };
