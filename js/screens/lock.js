@@ -5,6 +5,7 @@ import { state, saveMeta, wipeAll } from '../store.js';
 import { go, render, getStack, setStack, current } from '../router.js';
 import { hashPin, verifyPin, createIdKeys } from '../crypto.js';
 import * as ui from '../ui.js';
+import { scheduleMorning, flush, cancelEverything } from '../notify.js';
 
 const PIN_LEN = 6;
 let buf = '';
@@ -45,6 +46,9 @@ function unlock() {
   const s = savedStack;
   savedStack = null;
   setStack(s && s.length ? s : [{ name: 'menu', params: {} }]);
+  // 通知：送れていなかったものを送り、朝のまとめを最新にする
+  flush();
+  scheduleMorning().catch(() => {});
 }
 
 // ---- ロック画面 ----
@@ -73,6 +77,7 @@ export const lockScreen = {
       sec.pinFails = (sec.pinFails || 0) + 1;
       await saveMeta('security');
       if (sec.pinFails >= 10) {
+        await cancelEverything();
         await wipeAll();
         return;
       }
@@ -193,7 +198,7 @@ export const setupScreen = {
       finishSetup();
     },
     skipPass() {
-      ui.toast('合言葉は設定からいつでも作れます。作るまでは患者を登録できません');
+      ui.toast('合言葉は設定からいつでも作れます。作るまでは ID を保存できません');
       finishSetup();
     },
   },

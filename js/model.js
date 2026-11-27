@@ -1,6 +1,7 @@
 // 患者とタスクの決まりごと（画面に依存しない部分）
 
 import { uuid, ymd, dayKey, diffDays } from './util.js';
+import { openCultures, clinicalCount, endOpenMeds } from './meds.js';
 
 // ---- ひな形（設定で編集できる。ここは最初の値） ----
 export const DEFAULT_TEMPLATES = {
@@ -172,9 +173,9 @@ export function newPatient(fields, templates) {
     id: uuid(),
     code: fields.code,
     encId: fields.encId || null,
-    nickname: fields.nickname,
-    ageBand: fields.ageBand,
-    sex: fields.sex,
+    nickname: fields.nickname || '',
+    ageBand: fields.ageBand || '',
+    sex: fields.sex || '',
     ward: fields.ward || '',
     room: fields.room || '',
     bed: bedLabel(fields.ward, fields.room) || fields.bed || '',
@@ -188,6 +189,8 @@ export function newPatient(fields, templates) {
     notes: [],
     problems: [],
     devices: [],
+    meds: [],
+    cultures: [],
     daily: {},
     lastICDate: null,
     outlook: null,
@@ -224,8 +227,12 @@ export function dailySet(p, field, value, key = dayKey()) {
   while (keys.length > 14) delete p.daily[keys.shift()];
 }
 
+// 入っていない項目（ID・あだ名・年代・性別）があるか
+export const missingInfo = (p) => !p.encId || !p.nickname || !p.ageBand || !p.sex;
+
 export function openCount(p) {
   let n = openTasks(p).length;
+  if (p.location !== 'past') n += clinicalCount(p);
   if (p.location === 'inpatient') {
     const d = dailyGet(p);
     if (d.visit === 'todo') n++;
@@ -242,6 +249,7 @@ export function remainTone(p) {
     if (d.visit === 'todo' || d.blood === 'unknown') return 'r';
   }
   if (open.some((t) => t.state === 'todo')) return 'r';
+  if (p.location !== 'past' && clinicalCount(p)) return 'r';
   return openCount(p) ? 'a' : 'g';
 }
 
@@ -302,7 +310,8 @@ export function progress(p) {
     if (t === 'home') {
       const list = p.tasks.filter((x) => x.group === 'home');
       if (list.some(isOpen)) return null;
-      return allOpen.length ? 'toFollowup' : 'askPast';
+      // 結果の出ていない培養も帰宅後フォローへ
+      return allOpen.length || openCultures(p).length ? 'toFollowup' : 'askPast';
     }
     // 他科入院は結果確認がすべて終わるまで待つ
     if (t === 'admit_other') return allOpen.length ? null : 'askPast';
@@ -313,9 +322,12 @@ export function progress(p) {
     if (p.ending.type === 'transfer_dept') return 'askPast';
     return listDone(p, p.ending.type) ? 'askPast' : null;
   }
-  if (p.location === 'followup') return allOpen.length ? null : 'askPast';
+  if (p.location === 'followup') return allOpen.length || openCultures(p).length ? null : 'askPast';
   return null;
 }
+
+// 帰宅後フォローに移すもの（タスク＋結果の出ていない培養）の数
+export const followupCount = (p) => p.tasks.filter(isOpen).length + openCultures(p).length;
 
 // 救急外来から救急科に入院：その場で病棟・病室・入院日を入れて、すぐ入院患者へ
 // 入院の手続きのリストは入院患者のページに出す
@@ -338,6 +350,7 @@ export function moveToInpatient(p) {
 export function moveToFollowup(p, defaultDays = 3) {
   p.location = 'followup';
   p.homeDate = today();
+  endOpenMeds(p, p.homeDate);
   for (const t of p.tasks) {
     if (isOpen(t)) {
       t.group = 'followup';
@@ -352,6 +365,8 @@ export function moveToFollowup(p, defaultDays = 3) {
 
 export function moveToPast(p) {
   p.endedFrom = p.endedFrom || (p.ending ? p.ending.from : p.location);
+  // 続いている薬は、その日（終わり方を選んだ日）で終了にする
+  endOpenMeds(p, p.ending && p.ending.at ? p.ending.at : today());
   p.location = 'past';
   p.endedAt = today();
 }

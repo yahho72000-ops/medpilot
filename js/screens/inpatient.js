@@ -4,8 +4,9 @@ import { esc, md, mdw, ymd, dayKey } from '../util.js';
 import { state, findPatient, savePatient, saveMeta } from '../store.js';
 import * as M from '../model.js';
 import { go, render } from '../router.js';
-import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, devicesBlock, sec, emptyState } from './common.js';
+import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick } from './common.js';
 import * as ui from '../ui.js';
+import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 
 function rowChips(p) {
   const out = [];
@@ -18,6 +19,7 @@ function rowChips(p) {
   for (const t of open.filter((x) => x.group !== 'admit')) out.push(taskChip(t));
   if (M.icWarn(p)) out.push(chip(`家族IC ${M.icDays(p)}日前`, 'r', 'bold'));
   for (const dv of M.activeDevices(p).filter(M.deviceWarn)) out.push(chip(`${dv.type} ${M.deviceDay(dv)}日目`, 'r', 'bold'));
+  out.push(cultureChip(p));
   if (p.transferStart) out.push(chip(`転院調整中（${md(p.transferStart)}〜）`, 'g'));
   return out.join('');
 }
@@ -37,8 +39,8 @@ export const inListScreen = {
           ? `<div class="move"><button class="mini" data-act="moveUp" data-pid="${p.id}" ${i === 0 ? 'disabled' : ''} aria-label="上へ">▲</button><button class="mini" data-act="moveDown" data-pid="${p.id}" ${i === list.length - 1 ? 'disabled' : ''} aria-label="下へ">▼</button></div>`
           : '';
         return `<div class="lrow-wrap"><button class="lrow" data-act="openPatient" data-id="${p.id}">
-            <div class="row-between"><div class="nameline"><span class="code">${esc(p.code)}</span><span class="muted">${p.bed ? `　${esc(p.bed)}` : ''}　${esc(p.nickname)}</span></div><div class="muted small">入院${M.hospitalDay(p)}日目</div></div>
-            <div class="row-gap wrap">${tag}<span class="muted small">${esc(demo(p))} ・ ${esc(codeText(p))}</span></div>
+            <div class="row-between"><div class="nameline"><span class="code">${esc(p.code)}</span><span class="muted">${p.bed ? `　${esc(p.bed)}` : ''}　${nick(p)}</span></div><div class="muted small">入院${M.hospitalDay(p)}日目</div></div>
+            <div class="row-gap wrap">${missingChip(p)}${tag}<span class="muted small">${esc([demo(p), codeText(p)].filter(Boolean).join(' ・ '))}</span></div>
             <div class="chips-row">${rowChips(p)}</div>
           </button>${move}</div>`;
       })
@@ -117,19 +119,23 @@ export const inPatientScreen = {
       ? `<div class="card ending"><div class="row-between"><div><span class="tag">${esc(M.endingLabel(p))}</span><span class="muted small">　${md(p.ending.at)}</span></div><button class="mini" data-act="cancelEnding" data-pid="${p.id}">取り消す</button></div></div>`
       : '';
     return `${header('患者', '入院患者')}
-      ${patientCard(p, `${demo(p)} ・ 入院${M.hospitalDay(p)}日目（${md(p.admitDate)}〜）`)}
+      ${patientCard(p, [demo(p), `入院${M.hospitalDay(p)}日目（${md(p.admitDate)}〜）`].filter(Boolean).join(' ・ '))}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${admitOpen ? `${sec(`入院の手続き（残り${admitOpen}）`)}<div class="tlist">${admitTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('今日のタスク（朝6時にリセット）')}
-      <div class="tlist">${dailyRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
+      <div class="tlist">${dailyRows(p)}${clinicalTodayRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
       ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}
       <div class="grid2"><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスク</button><button class="btn2" data-act="addTask" data-pid="${p.id}" data-dated="1">＋ 日付つき予定</button></div>
       ${sec('Problem List', `<button class="mini" data-act="addProblem" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card plist">${problems || '<div class="muted small">まだありません</div>'}</div>
       ${sec('最新の検査値')}
       ${labGrid(p)}
-      <button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button>
+      <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>
+      ${sec('薬', `<button class="mini" data-act="addMed" data-pid="${p.id}">＋ 追加</button>`)}
+      <div class="card kvlist">${medsBlock(p)}</div>
+      ${sec('培養', `<button class="mini" data-act="addCulture" data-pid="${p.id}">＋ 追加</button>`)}
+      <div class="card clist">${culturesBlock(p)}</div>
       ${sec('デバイス', `<button class="mini" data-act="addDevice" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card kvlist">${devicesBlock(p)}</div>
       ${sec('家族IC・退院・転院')}

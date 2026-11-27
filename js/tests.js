@@ -4,6 +4,8 @@ import * as M from './model.js';
 import { parseLabText, groupImport, matchItem, latestValues, defaultLabItems } from './labs.js';
 import { hashPin, verifyPin, createIdKeys, encryptId, openPrivate, decryptId, changePass, randomCode, CODE_CHARS } from './crypto.js';
 import { dayKey, addDays, diffDays, ymd, norm } from './util.js';
+import * as K from './meds.js';
+import { buildMorning, newTopic } from './notify.js';
 
 const results = [];
 const eq = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want });
@@ -128,6 +130,105 @@ async function run() {
   ] };
   const lv = latestValues(lp2, items);
   eq('最新値（2回目）と矢印', [lv[0].last.value, lv[0].prev.value, lv[0].arrow], ['120', '105', '↑']);
+
+  // 薬：抗菌薬の通算（1日でもあいたら数え直す・重なりは1日）
+  const D = (n) => addDays('2026-11-01', n);
+  const mp = { meds: [] };
+  const ctrx = K.newMed({ name: 'CTRX', cat: 'abx', start: D(0) });
+  K.endMed(ctrx, D(4));
+  mp.meds.push(ctrx);
+  mp.meds.push(K.newMed({ name: 'MEPM', cat: 'abx', start: D(5) }));
+  eq('切り替え（すき間なし）は通算', K.abxRun(mp, D(5)).days, 6);
+  eq('通算の表示', K.abxText(mp, D(6)), '抗菌薬 通算7日目');
+  mp.meds[1].start = D(6);
+  eq('1日あいたら数え直す', K.abxRun(mp, D(6)).days, 1);
+  mp.meds[1].start = D(4);
+  eq('同じ日に切り替えは1日', K.abxRun(mp, D(5)).days, 6);
+  const fin = { meds: [ctrx] };
+  eq('終わった抗菌薬の表示', K.abxText(fin, D(10)), '抗菌薬 計5日（11/1〜11/5）');
+  eq('抗菌薬以外は数えない', K.abxRun({ meds: [K.newMed({ name: 'NAD', cat: 'vaso', start: D(0) })] }, D(3)), null);
+  const m7 = K.newMed({ name: 'CEZ', cat: 'abx', start: D(0), planDays: 7 });
+  eq('開始日が1日目', K.medDay(m7, D(0)), 1);
+  eq('予定日数の表示', K.medStatus(m7, D(2)).text, '3/7日目');
+  eq('最終日', K.medFinal(m7, D(6)), 'final');
+  eq('予定を過ぎた', K.medFinal(m7, D(7)), 'over');
+  eq('最終日の前は出ない', K.medFinal(m7, D(5)), null);
+  eq('終了日は最後に使った日', (() => { const x = K.newMed({ name: 'x', cat: 'abx', start: D(0) }); K.endMed(x, D(6)); return K.medStatus(x, D(9)).text; })(), '11/1〜11/7（7日間）');
+  const nad = K.newMed({ name: 'NAD', cat: 'vaso', start: D(0), unit: 'γ', rate: 0.1, rateAt: Date.parse('2026-11-01T10:00:00') });
+  nad.rates.push({ at: Date.parse('2026-11-02T10:00:00'), value: 0.25 });
+  eq('今の流量', K.curRate(nad, Date.parse('2026-11-02T12:00:00')).value, 0.25);
+  K.endMed(nad, D(2), Date.parse('2026-11-03T09:00:00'));
+  eq('流量の薬を止めると 0 を記録', [nad.end, nad.rates[nad.rates.length - 1].value], [D(2), 0]);
+  K.reopenMed(nad);
+  eq('終了の取り消し', [nad.end, nad.rates.length], [null, 2]);
+  eq('数字の表示', K.fmtNum(0.15000000001), '0.15');
+
+  // 過去へ移すと続いている薬は終わる
+  const pm = M.newPatient({ code: 'MMMM', nickname: 'x', ageBand: '70', sex: 'M', location: 'inpatient', admitDate: addDays(ymd(), -3) }, tpl);
+  pm.meds.push(K.newMed({ name: 'MEPM', cat: 'abx', start: addDays(ymd(), -3) }));
+  M.applyEnding(pm, 'transfer_dept', tpl);
+  M.moveToPast(pm);
+  eq('過去へ移すと薬は終了', pm.meds[0].end, ymd());
+
+  // 培養
+  const cu = K.newCulture({ specimen: '血液', submitted: '2026-11-01' });
+  eq('血液培養は2セット・3日後に確認', [cu.sets, cu.due, K.cultureTitle(cu)], [2, '2026-11-04', '血液培養 2セット']);
+  ok('確認日に今日のタスク', K.cultureDue(cu, '2026-11-04') && !K.cultureDue(cu, '2026-11-03'));
+  K.deferCulture(cu, '2026-11-05');
+  ok('先送り', !K.cultureDue(cu, '2026-11-04'));
+  K.setCultureStage(cu, 'prelim', '2026-11-03');
+  eq('途中報告で次は2日後', [cu.stage, cu.due], ['prelim', '2026-11-05']);
+  K.setCultureStage(cu, 'sens', '2026-11-05');
+  eq('感受性はその日に確認', cu.due, '2026-11-05');
+  K.setCultureStage(cu, 'done', '2026-11-05');
+  ok('確認済で終わり', !K.cultureOpen(cu) && cu.due === null);
+  eq('尿培養はセット数なし', K.newCulture({ specimen: '尿' }).sets, null);
+
+  // 帰宅：結果の出ていない培養はフォローへ
+  const hc = M.newPatient({ code: 'HHHH', nickname: '帰宅', ageBand: '40', sex: 'M', location: 'er' }, tpl);
+  hc.tasks.forEach((t) => M.setState(t, 'done'));
+  hc.cultures.push(K.newCulture({ specimen: '尿' }));
+  M.applyEnding(hc, 'home', tpl);
+  hc.tasks.filter((t) => t.group === 'home').forEach((t) => M.setState(t, 'done'));
+  eq('結果待ちの培養があればフォローへ', M.progress(hc), 'toFollowup');
+  M.moveToFollowup(hc);
+  eq('フォロー中は培養の結果を待つ', M.progress(hc), null);
+  K.setCultureStage(hc.cultures[0], 'negative');
+  eq('陰性ならフォロー終了', M.progress(hc), 'askPast');
+  const due = M.newPatient({ code: 'IIII', nickname: 'x', ageBand: '50', sex: 'F', location: 'inpatient', admitDate: ymd() }, tpl);
+  const before = M.openCount(due);
+  due.cultures.push(K.newCulture({ specimen: '痰', submitted: addDays(ymd(), -3) }));
+  eq('確認日の培養は残りに数える', M.openCount(due), before + 1);
+
+  // 培養の報告書の読み取り
+  const ctext = '```\nMEDPILOT-CULTURE v1\n検体|血液\nグラム|GNR\n菌|1|Escherichia coli|\n感受性|1|ABPC|>16|R\n感受性|1|CTRX|<=1|感性\n感受性|1|LVFX|2|中間\n菌|2|Enterococcus faecalis|少数\n感受性|2|ABPC|<=2|S\n説明です\n```';
+  const cr = K.parseCultureText(ctext);
+  eq('検体とグラム', [cr.specimen, cr.gram], ['血液', 'GNR']);
+  eq('菌の数', cr.organisms.map((o) => o.name), ['Escherichia coli', 'Enterococcus faecalis']);
+  eq('判定の言い換え', cr.organisms[0].sens.map((x) => x.sir), ['R', 'S', 'I']);
+  eq('耐性の一覧', K.resistant(cr.organisms[0]), ['ABPC']);
+  eq('陰性', K.parseCultureText('MEDPILOT-CULTURE v1\n検体|尿\n菌|0|陰性|').negative, true);
+
+  // 入っていない項目
+  ok('すぐ登録は未入力あり', M.missingInfo(M.newPatient({ code: 'JJJJ', nickname: '', location: 'er' }, tpl)));
+  ok('全部入っていれば印なし', !M.missingInfo({ encId: { x: 1 }, nickname: 'a', ageBand: '50', sex: 'M' }));
+
+  // 朝のまとめ（識別番号とタスク名だけ）
+  const day = '2026-12-01';
+  const mo = M.newPatient({ code: '7K3F', nickname: '秘密の名前', ageBand: '80', sex: 'F', ward: '5E', room: '512', disease: '肺炎', location: 'inpatient', admitDate: '2026-11-20' }, tpl);
+  mo.tasks.push(M.newTask({ label: '胸部CT', group: 'inpatient', dueDate: day }));
+  mo.tasks.push(M.newTask({ label: '明日の予定', group: 'inpatient', dueDate: addDays(day, 1) }));
+  mo.cultures.push(K.newCulture({ specimen: '血液', submitted: '2026-11-28' }));
+  mo.meds.push(K.newMed({ name: 'MEPM', cat: 'abx', start: '2026-11-25', planDays: 7 }));
+  mo.devices.push({ type: 'CV', insertedDate: '2026-11-17', removedDate: null });
+  const msg = buildMorning([mo], day);
+  ok('回診の人数', msg.message.startsWith('回診 1人'));
+  ok('今日の予定', msg.message.includes('・7K3F 胸部CT') && !msg.message.includes('明日の予定'));
+  ok('培養の確認と抗菌薬の最終日', msg.message.includes('7K3F 血液培養 2セット 確認') && msg.message.includes('7K3F MEPM 最終日'));
+  ok('IC 7日超とデバイス 14日超', msg.message.includes('IC 7日超：7K3F') && msg.message.includes('7K3F CV（15日目）'));
+  ok('あだ名・ベッド・病名・年代は出さない', !/秘密|5E|512|肺炎|80代|女性/.test(msg.title + msg.message));
+  ok('何もない日', buildMorning([], day).message.includes('今日の予定なし'));
+  ok('受け取り先の名前', /^medpilot-[A-Za-z0-9]{22}$/.test(newTopic()));
 
   // 暗号
   const rec = await hashPin('123456');

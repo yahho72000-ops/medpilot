@@ -14,6 +14,8 @@ export function header(title, backLabel, right = '') {
 
 export const chip = (text, tone, cls = '') => `<span class="chip ${tone} ${cls}">${esc(text)}</span>`;
 
+export const nick = (p) => (p.nickname ? esc(p.nickname) : '<span class="muted">あだ名なし</span>');
+
 export function demo(p) {
   const who = [M.ageLabel(p.ageBand), M.SEX[p.sex]].filter(Boolean).join(' ');
   return [who, p.disease].filter(Boolean).join(' ・ ');
@@ -33,14 +35,22 @@ export function nameLine(p) {
   return `<span class="code">${esc(p.code)}</span><span class="who">${p.bed ? `　${esc(p.bed)}` : ''}　${esc(p.nickname)}</span>`;
 }
 
+// 入っていない項目（ID・あだ名・年代・性別）があるときの印
+export function missingChip(p, clickable = false) {
+  if (!M.missingInfo(p)) return '';
+  return clickable
+    ? `<button class="chip r bold" data-act="editPatient" data-pid="${p.id}">未入力</button>`
+    : chip('未入力', 'r', 'bold');
+}
+
 // 患者ページの一番上のカード
 export function patientCard(p, subLine, { readonly = false } = {}) {
   const tools = readonly
     ? `<button class="mini" data-act="revealId" data-pid="${p.id}">ID</button>`
     : `<button class="mini" data-act="revealId" data-pid="${p.id}">ID</button><button class="mini" data-act="editPatient" data-pid="${p.id}">編集</button>`;
   return `<div class="card pcard">
-    <div class="row-between"><div class="pcode">${esc(p.code)}</div>${codeBadge(p, !readonly)}</div>
-    <div class="row-between"><div class="pname">${esc(p.nickname)}${p.bed ? `　<span class="muted">${esc(p.bed)}</span>` : ''}</div><div class="tools">${tools}</div></div>
+    <div class="row-between"><div class="row-gap"><span class="pcode">${esc(p.code)}</span>${readonly ? '' : missingChip(p, true)}</div>${codeBadge(p, !readonly)}</div>
+    <div class="row-between"><div class="pname">${p.nickname ? esc(p.nickname) : '<span class="muted">あだ名なし</span>'}${p.bed ? `　<span class="muted">${esc(p.bed)}</span>` : ''}</div><div class="tools">${tools}</div></div>
     <div class="muted">${esc(subLine)}</div>
   </div>`;
 }
@@ -54,9 +64,12 @@ function bars(t) {
   return s + '</div>';
 }
 
+const clock = (ms) => { const d = new Date(ms); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
 export function taskRow(p, t, { readonly = false } = {}) {
   const s = M.stateInfo(t);
-  const extra = t.kind === 'free' ? '<span class="muted small">　自分で追加</span>' : '';
+  const timer = !readonly && t.timer && t.timer.at > Date.now() && M.isOpen(t) ? `<span class="timer small">　通知 ${clock(t.timer.at)}</span>` : '';
+  const extra = (t.kind === 'free' ? '<span class="muted small">　自分で追加</span>' : '') + timer;
   const due = t.dueDate ? `<span class="muted small">　${mdw(t.dueDate)}</span>` : '';
   const attrs = readonly ? '' : `data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}"`;
   return `<div class="trow" ${attrs}><div class="tlabel">${esc(t.label)}${due}${extra}</div><div class="tstate">${chip(s.text, s.tone)}${bars(t)}</div></div>`;

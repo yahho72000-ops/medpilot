@@ -5,9 +5,10 @@ import { state, findPatient, savePatient, existingCodes, remember } from '../sto
 import * as M from '../model.js';
 import { go } from '../router.js';
 import { encryptId, randomCode } from '../crypto.js';
-import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState } from './common.js';
+import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick } from './common.js';
 import * as ui from '../ui.js';
 import { wardRoomFields } from '../actions.js';
+import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 
 // ---- 一覧 ----
 export const erListScreen = {
@@ -20,8 +21,8 @@ export const erListScreen = {
         const tag = p.ending ? `<span class="tag">${esc(M.endingLabel(p))}</span>` : '';
         return `<button class="card pcard-list" data-act="openPatient" data-id="${p.id}">
           <div class="row-between"><div class="nameline">${nameLineHtml(p)}</div>${remainChip(p)}</div>
-          <div class="row-gap wrap">${tag}<span class="muted small">${esc(demo(p))} ・ ${esc(codeText(p))}</span></div>
-          <div class="chips-row">${er.map(taskChip).join('')}${extra.map(taskChip).join('')}</div>
+          <div class="row-gap wrap">${missingChip(p)}${tag}<span class="muted small">${esc([demo(p), codeText(p)].filter(Boolean).join(' ・ '))}</span></div>
+          <div class="chips-row">${er.map(taskChip).join('')}${extra.map(taskChip).join('')}${cultureChip(p)}</div>
         </button>`;
       })
       .join('');
@@ -30,15 +31,31 @@ export const erListScreen = {
       ${cards || emptyState('救急外来の患者はいません')}
       ${list.length ? '<div class="muted small">赤＝まだ　黄＝待ち　グレー＝済・なし</div>' : ''}
       <div class="bottom-space"></div>
-      <button class="btn fixed-bottom" data-act="goRegister" data-to="er">＋ 患者を登録</button>`;
+      <div class="fixed-bottom grid2 two-btn"><button class="btn" data-act="quickRegister">すぐ登録</button><button class="btn2 solid" data-act="goRegister" data-to="er">＋ 詳しく登録</button></div>`;
   },
   actions: {
     goRegister(ds) { go('register', { to: ds.to }); },
+    // あだ名とブース番号だけで登録して、すぐタスクを始める（空でも可）
+    async quickRegister() {
+      const r = await ui.custom(`<div class="sheet-title">すぐ登録</div>
+        <div class="muted small">ID・年代・性別などは、あとで患者ページの「編集」から入れられます。空のままでも登録できます。</div>
+        <label class="lbl" for="q-nick">あだ名</label><input id="q-nick" type="text" autocomplete="off" placeholder="本名を連想させない名前に">
+        <label class="lbl" for="q-room">ブース番号</label><input id="q-room" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="例：3">
+        <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="quickOk">登録する</button></div>`);
+      if (!r) return;
+      const p = M.newPatient({ code: randomCode(existingCodes()), nickname: r.nickname, ward: 'ER', room: r.room, location: 'er' }, state.meta.templates);
+      await savePatient(p);
+      ui.toast(`登録しました（${p.code}）。ID などはあとで「編集」から`);
+      go('erPatient', { id: p.id });
+    },
+    quickOk() {
+      ui.resolveSheet({ nickname: $('#q-nick').value.trim(), room: $('#q-room').value.normalize('NFKC').replace(/\D/g, '').slice(0, 4) });
+    },
   },
 };
 
 function nameLineHtml(p) {
-  return `<span class="code">${esc(p.code)}</span><span class="muted">${p.bed ? `　${esc(p.bed)}` : ''}　${esc(p.nickname)}</span>`;
+  return `<span class="code">${esc(p.code)}</span><span class="muted">${p.bed ? `　${esc(p.bed)}` : ''}　${nick(p)}</span>`;
 }
 
 // ---- 患者ページ ----
@@ -58,16 +75,20 @@ export const erPatientScreen = {
       ? ''
       : `${sec('終わり方')}<div class="grid3">${Object.entries(M.ER_ENDINGS).map(([k, e]) => `<button class="btn3" data-act="erEnd" data-pid="${p.id}" data-type="${k}">${esc(e.label)}</button>`).join('')}</div>`;
     return `${header('患者', '救急外来')}
-      ${patientCard(p, `${demo(p)} ・ ${md(p.visitDate)} 来院`)}
+      ${patientCard(p, [demo(p), `${md(p.visitDate)} 来院`].filter(Boolean).join(' ・ '))}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('検査・説明')}
-      <div class="tlist">${erTasks.map((t) => taskRow(p, t)).join('')}</div>
+      <div class="tlist">${clinicalTodayRows(p)}${erTasks.map((t) => taskRow(p, t)).join('')}</div>
       <div class="muted small">タップすると、状態を選んだり名前を変えたりできます</div>
       <div class="grid2"><button class="btn2" data-act="addSame" data-pid="${p.id}">＋ 同じ種類を追加</button><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスクを追加</button></div>
       ${sec('検査値')}
       ${labGrid(p)}
-      <button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button>
+      <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>
+      ${sec('薬', `<button class="mini" data-act="addMed" data-pid="${p.id}">＋ 追加</button>`)}
+      <div class="card kvlist">${medsBlock(p)}</div>
+      ${sec('培養', `<button class="mini" data-act="addCulture" data-pid="${p.id}">＋ 追加</button>`)}
+      <div class="card clist">${culturesBlock(p)}</div>
       ${sec('デバイス', `<button class="mini" data-act="addDevice" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="kvlist">${devicesBlock(p)}</div>
       ${endingButtons}`;
@@ -84,6 +105,7 @@ export const registerScreen = {
       <div class="field"><div class="lbl">登録先</div>
         <div class="seg" data-pick="to"><button class="${to === 'er' ? 'on' : ''}" data-act="pick" data-v="er">救急外来</button><button class="${to === 'in' ? 'on' : ''}" data-act="pick" data-v="in">入院患者</button></div></div>
       <div class="field ${to === 'in' ? '' : 'hidden'}" id="admit-field"><label class="lbl" for="r-admit">入院日</label><input id="r-admit" type="date" value="${ymd()}"></div>
+      <div class="muted small">急いでいるときは空のままでも登録できます（あとで「編集」から入れられます）。</div>
       <div class="field"><label class="lbl" for="r-id1">患者ID（8桁）</label>
         <input id="r-id1" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput">
         <label class="lbl" for="r-id2">もう一度入力</label>
@@ -124,16 +146,15 @@ export const registerScreen = {
       const ageBand = pick('age');
       const sex = pick('sex');
       const to = pick('to') || 'er';
-      if (!/^\d{8}$/.test(id1)) return void (err.textContent = '患者IDは8桁の数字で入れてください');
-      if (id1 !== id2) return void (err.textContent = '2回入れたIDが一致しません');
-      if (!nickname) return void (err.textContent = 'あだ名を入れてください');
-      if (!ageBand) return void (err.textContent = '年代を選んでください');
-      if (!sex) return void (err.textContent = '性別を選んでください');
-      if (!state.meta.idKeys) return void (err.textContent = '合言葉が設定されていません。設定から合言葉を作ってください');
+      if (id1 || id2) {
+        if (!/^\d{8}$/.test(id1)) return void (err.textContent = '患者IDは8桁の数字で入れてください');
+        if (id1 !== id2) return void (err.textContent = '2回入れたIDが一致しません');
+        if (!state.meta.idKeys) return void (err.textContent = '合言葉が設定されていません。ID を空にして登録するか、設定から合言葉を作ってください');
+      }
       err.textContent = '';
       el.disabled = true;
       try {
-        const encId = await encryptId(state.meta.idKeys, id1);
+        const encId = id1 ? await encryptId(state.meta.idKeys, id1) : null;
         const p = M.newPatient({
           code: randomCode(existingCodes()),
           encId,

@@ -1,6 +1,6 @@
 // MedPilot の起動、画面の登録、タップ・長押しの受け付け、自動ロック
 
-import { state, init } from './store.js';
+import { state, init, onPatientsChanged } from './store.js';
 import { register, go, actionFor, current } from './router.js';
 import * as ui from './ui.js';
 import { patientActions } from './actions.js';
@@ -9,13 +9,17 @@ import { erListScreen, erPatientScreen, registerScreen } from './screens/er.js';
 import { inListScreen, inPatientScreen } from './screens/inpatient.js';
 import { labImportScreen, labConfirmScreen } from './screens/lab.js';
 import { followupScreen, pastScreen, pastViewScreen } from './screens/followup.js';
-import { settingsScreen, tplEditScreen, labItemsScreen, applyLook } from './screens/settings.js';
+import { settingsScreen, tplEditScreen, labItemsScreen, notifySettingsScreen, favMedsScreen, applyLook } from './screens/settings.js';
 import { lockScreen, setupScreen, lock } from './screens/lock.js';
+import { graphScreen } from './screens/graph.js';
+import { cultureImportScreen, cultureConfirmScreen } from './screens/culture.js';
+import { clinicalActions } from './clinical.js';
+import { changedSoon, changedNow, startNotify, flush } from './notify.js';
 
 const LOCK_AFTER_MS = 5 * 60 * 1000;
 
 register({
-  _global: { actions: { ...ui.sheetActions, ...patientActions, lockNow: () => lock() } },
+  _global: { actions: { ...ui.sheetActions, ...patientActions, ...clinicalActions, lockNow: () => lock(), openGraph: (ds) => go('graph', { id: ds.pid }) } },
   menu: menuScreen,
   erList: erListScreen,
   erPatient: erPatientScreen,
@@ -30,6 +34,11 @@ register({
   settings: settingsScreen,
   tplEdit: tplEditScreen,
   labItems: labItemsScreen,
+  notifySettings: notifySettingsScreen,
+  favMeds: favMedsScreen,
+  graph: graphScreen,
+  cultureImport: cultureImportScreen,
+  cultureConfirm: cultureConfirmScreen,
   lock: lockScreen,
   setup: setupScreen,
 });
@@ -123,9 +132,11 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     document.body.classList.add('private');
+    changedNow();
   } else {
     if (needLock()) lock();
     document.body.classList.remove('private');
+    flush();
   }
 });
 window.addEventListener('pagehide', () => document.body.classList.add('private'));
@@ -158,6 +169,9 @@ async function boot() {
     return;
   }
   applyLook();
+  // 患者のデータが変わったら、朝のまとめを作り直す（数秒まとめてから）
+  onPatientsChanged(changedSoon);
+  startNotify();
   if (!state.meta.security.pin) go('setup', { step: 'welcome' }, { reset: true });
   else go('lock', {}, { reset: true });
   registerSW();

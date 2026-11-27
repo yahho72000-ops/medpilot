@@ -5,8 +5,12 @@ import { state, findPatient, savePatient, removePatient, saveMeta, remember, wip
 import * as M from './model.js';
 import * as ui from './ui.js';
 import { go, back, backTo, render, current } from './router.js';
-import { openPrivate, decryptId } from './crypto.js';
+import { openPrivate, decryptId, encryptId } from './crypto.js';
 import { historyOf } from './labs.js';
+import * as N from './notify.js';
+
+// タスク名は通知に出るので、名前やベッド番号を書かないよう注意を出す
+export const TASK_NAME_NOTE = 'タスク名は通知に出ます。名前・ベッド番号は書かないでください。';
 
 const P = (ds) => findPatient(ds.pid);
 
@@ -45,6 +49,7 @@ async function askPast(p, title) {
   ]);
   if (!v || v === 'later') return false;
   const listScreen = listScreenFor(p);
+  await N.clearPatientTimers(p);
   if (v === 'del') {
     await removePatient(p);
     ui.toast('削除しました');
@@ -74,8 +79,8 @@ export async function afterChange(p) {
     return true;
   }
   if (r === 'toFollowup') {
-    const n = p.tasks.filter(M.isOpen).length;
-    const v = await ui.choose('帰宅の準備が終わりました', `終わっていないタスク（${n}件）を帰宅後フォローに移しますか？`, [
+    const n = M.followupCount(p);
+    const v = await ui.choose('帰宅の準備が終わりました', `終わっていないタスクや結果待ちの培養（${n}件）を帰宅後フォローに移しますか？`, [
       { v: 'go', label: '帰宅後フォローに移す', tone: 'btn' },
       { v: 'later', label: 'まだ', tone: 'btn2' },
     ]);
@@ -108,6 +113,7 @@ async function taskSheet(p, { title = 'タスクを追加', withDate = false, de
     <div class="lbl">段階</div>
     <div class="seg" data-pick="steps"><button class="on" data-act="pick" data-v="2">未 → 済</button><button data-act="pick" data-v="3">オーダー → 結果 → 確認</button></div>
     ${withDate ? `<label class="lbl" for="sheet-date">日付（予定・期限）</label><input id="sheet-date" type="date" value="${esc(defaultDate)}">` : ''}
+    <div class="warn-a small">${TASK_NAME_NOTE}</div>
     <div class="err" id="sheet-err"></div>
     <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="taskOk">追加する</button></div>`;
   return ui.custom(html);
@@ -124,7 +130,8 @@ let revealTimer = null;
 
 export async function showIdSheet(p) {
   if (!p.encId) {
-    ui.toast('この患者の ID は保存されていません');
+    const v = await ui.choose(`${esc(p.code)} の ID は入っていません`, '今入れますか？', [{ v: 'now', label: '今入れる', tone: 'btn' }]);
+    if (v === 'now') await idSheet(p);
     return;
   }
   if (!state.meta.idKeys) {
@@ -142,8 +149,75 @@ export async function showIdSheet(p) {
   });
 }
 
+const clock = (ms) => { const d = new Date(ms); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+// タイマーの時間を選び直す
+async function changeTimer(p, t) {
+  if (!N.canNotify()) {
+    ui.toast('通知の受け取り先が設定されていません（設定 → 通知）');
+    return;
+  }
+  const cur = t.timer && t.timer.at > Date.now() ? t.timer.min : 0;
+  const v = await ui.choose(`${t.label}：タイマー`, t.timer && t.timer.at > Date.now() ? `今：${clock(t.timer.at)} に通知` : '今：なし', [30, 60, 90, 0].map((m) => ({ v: String(m), label: m ? `${m}分後` : 'なし（通知しない）', tone: m === cur ? 'btn' : 'btn2' })));
+  if (v === null) return;
+  const min = Number(v);
+  if (min) await N.setTaskTimer(p, t, min); else await N.clearTaskTimer(t);
+  await savePatient(p);
+  render();
+  ui.toast(min ? `${min}分後（${clock(t.timer.at)}）に通知します` : 'タイマーをやめました');
+}
+
+// 終わり方を選ぶ前に、ID が入っていなければ聞く。false なら中止
+async function askIdIfMissing(p) {
+  if (p.encId) return true;
+  const v = await ui.choose('ID が入っていません', '帰宅後フォローや過去の一覧でカルテから探すときに ID が必要です。今入れますか？', [
+    { v: 'now', label: '今入れる', tone: 'btn' },
+    { v: 'later', label: 'あとで（このまま進む）', tone: 'btn2' },
+  ]);
+  if (!v) return false;
+  if (v === 'later') return true;
+  const ok = await idSheet(p);
+  return ok !== null;
+}
+
+// ID だけを入れる小窓
+export async function idSheet(p) {
+  if (!state.meta.idKeys) {
+    ui.toast('合言葉が設定されていません。設定から合言葉を作ってください');
+    return null;
+  }
+  const r = await ui.custom(`<div class="sheet-title">${esc(p.code)} の患者ID</div>
+    <label class="lbl" for="i-id1">患者ID（8桁）</label><input id="i-id1" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput">
+    <label class="lbl" for="i-id2">もう一度入力</label><input id="i-id2" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput">
+    <div class="muted small">IDは暗号化して保存します。見るときは合言葉が必要です。</div>
+    <div class="err" id="i-err"></div>
+    <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="idOk">保存</button></div>`);
+  if (!r) return null;
+  p.encId = await encryptId(state.meta.idKeys, r);
+  await savePatient(p);
+  render();
+  ui.toast('ID を保存しました');
+  return true;
+}
+
 export const patientActions = {
   back() { back(); },
+
+  idOk() {
+    const a = $('#i-id1').value.normalize('NFKC').trim();
+    const b = $('#i-id2').value.normalize('NFKC').trim();
+    const err = $('#i-err');
+    if (!/^\d{8}$/.test(a)) return void (err.textContent = '患者IDは8桁の数字で入れてください');
+    if (a !== b) return void (err.textContent = '2回入れたIDが一致しません');
+    $('#i-id1').value = '';
+    $('#i-id2').value = '';
+    ui.resolveSheet(a);
+  },
+
+  async enterId(ds) {
+    const p = P(ds);
+    if (p) await idSheet(p);
+  },
 
   openPatient(ds) {
     const p = findPatient(ds.id || ds.pid);
@@ -156,7 +230,9 @@ export const patientActions = {
     const t = T(p, ds);
     if (!t) return;
     const states = M.stateChoices(t).map(([k, l]) => ({ v: `s:${k}`, label: l, tone: k === t.state ? 'btn' : 'btn2' }));
-    const more = [{ v: 'rename', label: '名前を変える', tone: 'btn3' }];
+    const more = [];
+    if (t.steps === 3 && t.state === 'ordered' && N.canNotify()) more.push({ v: 'timer', label: t.timer && t.timer.at > Date.now() ? `タイマーを変える（${clock(t.timer.at)} に通知）` : 'タイマーを付ける', tone: 'btn3' });
+    more.push({ v: 'rename', label: '名前を変える', tone: 'btn3' });
     if (p.location !== 'er' || t.dueDate) more.push({ v: 'date', label: t.dueDate ? `日付を変える（${md(t.dueDate)}）` : '日付を付ける', tone: 'btn3' });
     more.push({ v: 'delete', label: '削除する', tone: 'danger' });
     const v = await ui.choose(t.label, `今：${M.stateInfo(t).text}`, [...states, ...more]);
@@ -166,17 +242,35 @@ export const patientActions = {
       if (s === t.state) return;
       M.setState(t, s);
       if (t.kind === 'ic' && s === 'done') p.lastICDate = ymd();
+      // タイマー：オーダー済（依頼済）で予約、確認済・なし・未で取り消す
+      let timerMin = 0;
+      if (s === 'ordered' && t.steps === 3) {
+        timerMin = N.defaultTimer(t);
+        if (timerMin) await N.setTaskTimer(p, t, timerMin);
+        else await N.clearTaskTimer(t);
+      } else if (s === 'done' || s === 'none' || s === 'todo') {
+        await N.clearTaskTimer(t);
+      }
       await savePatient(p);
       render();
       if (M.progress(p)) {
         await afterChange(p);
         return;
       }
+      if (s === 'ordered' && t.steps === 3 && N.canNotify()) {
+        const msg = t.timer ? `${t.label}：${timerMin}分後に通知します` : `${t.label}：${M.stateInfo(t).text}`;
+        ui.toast(msg, () => changeTimer(p, t), t.timer ? '変更' : 'タイマー');
+        return;
+      }
       ui.toast(`${t.label}：${M.stateInfo(t).text}`);
       return;
     }
+    if (v === 'timer') {
+      await changeTimer(p, t);
+      return;
+    }
     if (v === 'rename') {
-      const name = await ui.promptText({ title: '名前を変える', value: t.label });
+      const name = await ui.promptText({ title: '名前を変える', value: t.label, note: TASK_NAME_NOTE });
       if (!name) return;
       t.label = name;
     }
@@ -188,6 +282,7 @@ export const patientActions = {
     if (v === 'delete') {
       const ok = await ui.choose('このタスクを削除しますか？', esc(t.label), [{ v: 'yes', label: '削除する', tone: 'danger' }]);
       if (ok !== 'yes') return;
+      await N.clearTaskTimer(t);
       p.tasks = p.tasks.filter((x) => x !== t);
     }
     await savePatient(p);
@@ -205,7 +300,7 @@ export const patientActions = {
     const kind = await ui.choose('同じ種類を追加', 'どの種類を増やしますか？', tpl.map((x, i) => ({ v: String(i), label: x.label })));
     if (kind === null) return;
     const base = tpl[Number(kind)];
-    const name = await ui.promptText({ title: `${base.label}を追加`, label: '名前（例：CT、MRI、整形外科）', placeholder: '何の検査・どこへのコンサルトか' });
+    const name = await ui.promptText({ title: `${base.label}を追加`, label: '名前（例：CT、MRI、整形外科）', placeholder: '何の検査・どこへのコンサルトか', note: TASK_NAME_NOTE });
     if (name === null) return;
     const label = name ? `${base.label}（${name}）` : base.label;
     p.tasks.push(M.newTask({ label, steps: base.steps, kind: base.kind, group: 'er' }));
@@ -261,12 +356,17 @@ export const patientActions = {
     const p = P(ds);
     const ages = M.AGE_BANDS.map((b) => `<button class="${b === p.ageBand ? 'on' : ''}" data-act="pick" data-v="${b}">${M.ageButton(b)}</button>`).join('');
     const r = await ui.custom(`<div class="sheet-title">${esc(p.code)} を編集</div>
+      <label class="lbl" for="e-id1">${p.encId ? '患者ID（保存済み。入れ直すときだけ入力）' : '患者ID（8桁・まだ入っていません）'}</label>
+      <input id="e-id1" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput" data-autofocus="no">
+      <label class="lbl" for="e-id2">もう一度入力</label>
+      <input id="e-id2" type="password" inputmode="numeric" autocomplete="off" maxlength="8" class="idinput">
       <label class="lbl" for="e-nick">あだ名</label><input id="e-nick" type="text" value="${esc(p.nickname)}" autocomplete="off">
       <div class="lbl">年代</div><div class="seg wrap6" data-pick="age">${ages}</div>
       <div class="lbl">性別</div><div class="seg" data-pick="sex"><button class="${p.sex === 'M' ? 'on' : ''}" data-act="pick" data-v="M">男性</button><button class="${p.sex === 'F' ? 'on' : ''}" data-act="pick" data-v="F">女性</button></div>
       <div class="lbl">病棟・病室</div>${wardRoomFields('e', p.ward || M.parseBed(p.bed).ward, p.room || M.parseBed(p.bed).room)}
       <label class="lbl" for="e-dx">病名</label><input id="e-dx" type="text" value="${esc(p.disease)}" autocomplete="off">
       ${p.admitDate ? `<label class="lbl" for="e-adm">入院日</label><input id="e-adm" type="date" value="${esc(p.admitDate)}">` : ''}
+      <div class="err" id="e-err"></div>
       <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="editOk">保存</button></div>
       <button class="danger" data-act="sheetChoose" data-v="__delete">この患者を削除</button>`, { });
     if (!r) return;
@@ -274,11 +374,15 @@ export const patientActions = {
       const ok = await ui.choose('この患者を削除しますか？', `${esc(p.code)} ${esc(p.nickname)}。元に戻せません。`, [{ v: 'yes', label: '削除する', tone: 'danger' }]);
       if (ok !== 'yes') return;
       const ls = listScreenFor(p);
+      await N.clearPatientTimers(p);
       await removePatient(p);
       ui.toast('削除しました');
       backTo(ls);
       return;
     }
+    const newId = r.__id;
+    delete r.__id;
+    if (newId) p.encId = await encryptId(state.meta.idKeys, newId);
     Object.assign(p, r);
     await remember('diseases', p.disease);
     await savePatient(p);
@@ -287,8 +391,15 @@ export const patientActions = {
 
   editOk() {
     const val = (id) => ($(id) ? $(id).value.trim() : undefined);
+    const err = $('#e-err');
+    const id1 = val('#e-id1').normalize('NFKC');
+    const id2 = val('#e-id2').normalize('NFKC');
+    if (id1 || id2) {
+      if (!/^\d{8}$/.test(id1)) return void (err.textContent = '患者IDは8桁の数字で入れてください');
+      if (id1 !== id2) return void (err.textContent = '2回入れたIDが一致しません');
+      if (!state.meta.idKeys) return void (err.textContent = '合言葉が設定されていません。設定から合言葉を作ってください');
+    }
     const nick = val('#e-nick');
-    if (!nick) return;
     const age = $('.seg[data-pick="age"] .on');
     const sex = $('.seg[data-pick="sex"] .on');
     const ward = $('#e-ward').value;
@@ -297,6 +408,9 @@ export const patientActions = {
     if (age) out.ageBand = age.dataset.v;
     if (sex) out.sex = sex.dataset.v;
     if ($('#e-adm') && $('#e-adm').value) out.admitDate = $('#e-adm').value;
+    if (id1) out.__id = id1;
+    $('#e-id1').value = '';
+    $('#e-id2').value = '';
     ui.resolveSheet(out);
   },
 
@@ -373,6 +487,7 @@ export const patientActions = {
   async erEnd(ds) {
     const p = P(ds);
     const e = M.ER_ENDINGS[ds.type];
+    if (!(await askIdIfMissing(p))) return;
     if (ds.type === 'admit_er') {
       const n = (state.meta.templates.admit || []).length;
       const r = await ui.custom(`<div class="sheet-title">入院（救急科）</div>
@@ -419,6 +534,7 @@ export const patientActions = {
 
   async inEnd(ds) {
     const p = P(ds);
+    if (!(await askIdIfMissing(p))) return;
     const v = await ui.choose('終わり方を選ぶ', '', Object.entries(M.IN_ENDINGS).map(([k, e]) => ({ v: k, label: e.label })));
     if (!v) return;
     M.applyEnding(p, v, state.meta.templates);
@@ -438,12 +554,12 @@ export const patientActions = {
 
   async homeDone(ds) {
     const p = P(ds);
-    const n = p.tasks.filter(M.isOpen).length;
+    const n = M.followupCount(p);
     if (!n) {
       await askPast(p, '帰宅しました');
       return;
     }
-    const v = await ui.choose('帰宅の処理を終える', `終わっていないタスク（${n}件）を帰宅後フォローに移します。`, [{ v: 'go', label: '帰宅後フォローに移す', tone: 'btn' }]);
+    const v = await ui.choose('帰宅の処理を終える', `終わっていないタスクや結果待ちの培養（${n}件）を帰宅後フォローに移します。`, [{ v: 'go', label: '帰宅後フォローに移す', tone: 'btn' }]);
     if (v !== 'go') return;
     M.moveToFollowup(p);
     await savePatient(p);

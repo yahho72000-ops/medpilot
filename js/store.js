@@ -3,6 +3,7 @@
 import { openDB, get, getAll, put, del, deleteDB } from './db.js';
 import { DEFAULT_TEMPLATES } from './model.js';
 import { defaultLabItems } from './labs.js';
+import { defaultFavMeds } from './meds.js';
 
 export const MAIN_DB = 'medpilot';
 export const DEMO_DB = 'medpilot-demo';
@@ -18,8 +19,17 @@ export const state = {
   labDraft: null,
 };
 
-const DEFAULT_SETTINGS = { theme: 'dark', font: 'm', inpatientSort: 'days', demo: false };
-const META_KEYS = ['security', 'settings', 'templates', 'labItems', 'history', 'idKeys'];
+// 通知（ntfy）の設定。timers はタイマーの最初の時間（分、0 はなし）
+export const DEFAULT_NOTIFY = {
+  on: true,
+  topic: '',
+  morning: true,
+  morningTime: '06:00',
+  timers: { lab: 60, image: 30, ecg: 0, consult: 60, free: 0 },
+  again: 30,
+};
+const DEFAULT_SETTINGS = { theme: 'dark', font: 'm', inpatientSort: 'days', demo: false, graphItems: ['WBC', 'CRP'] };
+const META_KEYS = ['security', 'settings', 'templates', 'labItems', 'history', 'idKeys', 'favMeds', 'notifyQueue', 'notifyState'];
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -27,11 +37,29 @@ export async function init() {
   state.mainDb = await openDB(MAIN_DB);
   for (const k of META_KEYS) state.meta[k] = await get(state.mainDb, 'meta', k);
   state.meta.settings = { ...DEFAULT_SETTINGS, ...(state.meta.settings || {}) };
+  const n = state.meta.settings.notify || {};
+  state.meta.settings.notify = { ...DEFAULT_NOTIFY, ...n, timers: { ...DEFAULT_NOTIFY.timers, ...(n.timers || {}) } };
   if (!state.meta.templates) state.meta.templates = clone(DEFAULT_TEMPLATES);
-  if (!state.meta.labItems) state.meta.labItems = defaultLabItems();
+  if (!state.meta.labItems) {
+    // 検査項目は ID で検査値とつながるので、最初に作ったものをすぐ保存する
+    state.meta.labItems = defaultLabItems();
+    await saveMeta('labItems');
+  }
   if (!state.meta.history) state.meta.history = { diseases: [], tasks: [] };
   if (!state.meta.security) state.meta.security = { pin: null, pinFails: 0, passFails: 0 };
+  if (!state.meta.favMeds) state.meta.favMeds = defaultFavMeds();
+  if (!state.meta.notifyQueue) state.meta.notifyQueue = [];
+  if (!state.meta.notifyState) state.meta.notifyState = { morning: {} };
   await openData(!!state.meta.settings.demo);
+}
+
+// 患者のデータが変わったときに呼ぶ（朝のまとめの作り直しに使う）
+const changeHooks = [];
+export const onPatientsChanged = (fn) => changeHooks.push(fn);
+function changed() {
+  for (const fn of changeHooks) {
+    try { fn(); } catch (e) { console.warn(e); }
+  }
 }
 
 async function openData(demo) {
@@ -49,6 +77,7 @@ export async function setDemo(on) {
   state.meta.settings.demo = !!on;
   await saveMeta('settings');
   await openData(!!on);
+  changed();
 }
 
 export async function clearDemo() {
@@ -65,11 +94,13 @@ export async function savePatient(p) {
   p.updatedAt = Date.now();
   if (!state.patients.includes(p)) state.patients.push(p);
   await put(state.dataDb, 'patients', p);
+  changed();
 }
 
 export async function removePatient(p) {
   state.patients = state.patients.filter((x) => x.id !== p.id);
   await del(state.dataDb, 'patients', p.id);
+  changed();
 }
 
 export function existingCodes() {

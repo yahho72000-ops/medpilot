@@ -41,7 +41,7 @@ export function choose(title, text, options) {
 }
 
 // 文字を入力してもらう。閉じたら null
-export function promptText({ title, label = '', value = '', placeholder = '', multiline = false, suggestions = [], inputmode = '' }) {
+export function promptText({ title, label = '', value = '', placeholder = '', multiline = false, suggestions = [], inputmode = '', note = '' }) {
   return new Promise((resolve) => {
     const field = multiline
       ? `<textarea id="sheet-input" rows="4" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`
@@ -49,7 +49,7 @@ export function promptText({ title, label = '', value = '', placeholder = '', mu
     const sug = suggestions.length
       ? `<div class="chips-row">${suggestions.slice(0, 12).map((s) => `<button class="pill" data-act="sheetSuggest" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>`
       : '';
-    sheet(`<div class="sheet-title">${esc(title)}</div>${label ? `<label class="lbl" for="sheet-input">${esc(label)}</label>` : ''}${field}${sug}<div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="sheetOk">決定</button></div>`);
+    sheet(`<div class="sheet-title">${esc(title)}</div>${label ? `<label class="lbl" for="sheet-input">${esc(label)}</label>` : ''}${field}${sug}${note ? `<div class="warn-a small">${esc(note)}</div>` : ''}<div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="sheetOk">決定</button></div>`);
     sheetResolve = resolve;
   });
 }
@@ -63,10 +63,10 @@ export function custom(html, opts) {
 }
 export const resolveSheet = (v) => closeSheet(v);
 
-export function toast(msg, undo) {
+export function toast(msg, undo, label = '元に戻す') {
   const layer = $('#toast-layer');
   toastUndo = undo || null;
-  layer.innerHTML = `<div class="toast" role="status"><span>${esc(msg)}</span>${undo ? '<button data-act="toastUndo">元に戻す</button>' : ''}</div>`;
+  layer.innerHTML = `<div class="toast" role="status"><span>${esc(msg)}</span>${undo ? `<button data-act="toastUndo">${esc(label)}</button>` : ''}</div>`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     layer.innerHTML = '';
