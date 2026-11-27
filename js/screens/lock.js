@@ -16,7 +16,8 @@ let savedStack = null;
 
 function keypad() {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
-  return `<div class="keypad">${keys.map((k) => (k ? `<button class="key" data-act="key" data-k="${k}" aria-label="${k === '⌫' ? '1文字消す' : k}">${k}</button>` : '<span></span>')).join('')}</div>`;
+  // 指が触れた瞬間に反応させる（data-down。クリックを待たない）
+  return `<div class="keypad">${keys.map((k) => (k ? `<button class="key" data-down="key" data-k="${k}" aria-label="${k === '⌫' ? '1文字消す' : k}">${k}</button>` : '<span></span>')).join('')}</div>`;
 }
 
 function dots() {
@@ -87,17 +88,22 @@ export const lockScreen = {
   },
 };
 
+// 画面全体を描き直さず、点とメッセージだけ変える（押した感じを速くする）
+function updateDots() {
+  const dots = document.querySelectorAll('.dots .dot');
+  if (dots.length !== PIN_LEN) { render(); return; }
+  dots.forEach((d, i) => d.classList.toggle('on', i < buf.length));
+  const err = document.querySelector('.pinpage .err');
+  if (err) err.textContent = msg;
+}
+
 // 1 文字入力。6 桁そろったら true
 function press(k) {
   if (k === '⌫') buf = buf.slice(0, -1);
   else if (buf.length < PIN_LEN) buf += k;
   msg = '';
-  if (buf.length < PIN_LEN) {
-    render();
-    return false;
-  }
-  render();
-  return true;
+  updateDots();
+  return buf.length >= PIN_LEN;
 }
 
 // ---- はじめての設定 / PIN の変更 ----

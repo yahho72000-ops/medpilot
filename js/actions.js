@@ -365,6 +365,7 @@ export const patientActions = {
       <div class="lbl">性別</div><div class="seg" data-pick="sex"><button class="${p.sex === 'M' ? 'on' : ''}" data-act="pick" data-v="M">男性</button><button class="${p.sex === 'F' ? 'on' : ''}" data-act="pick" data-v="F">女性</button></div>
       <div class="lbl">病棟・病室</div>${wardRoomFields('e', p.ward || M.parseBed(p.bed).ward, p.room || M.parseBed(p.bed).room)}
       <label class="lbl" for="e-dx">病名</label><input id="e-dx" type="text" value="${esc(p.disease)}" autocomplete="off">
+      <label class="lbl" for="e-wt">体重（kg）　γ の計算に使います</label><input id="e-wt" type="text" inputmode="decimal" value="${esc(p.weight ? String(p.weight) : '')}" autocomplete="off" placeholder="例：62">
       ${p.admitDate ? `<label class="lbl" for="e-adm">入院日</label><input id="e-adm" type="date" value="${esc(p.admitDate)}">` : ''}
       <div class="err" id="e-err"></div>
       <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="editOk">保存</button></div>
@@ -404,7 +405,9 @@ export const patientActions = {
     const sex = $('.seg[data-pick="sex"] .on');
     const ward = $('#e-ward').value;
     const room = $('#e-room').value.trim();
-    const out = { nickname: nick, ward, room, bed: M.bedLabel(ward, room), disease: val('#e-dx') };
+    const wt = val('#e-wt').normalize('NFKC');
+    if (wt && !(Number(wt) > 0 && Number(wt) < 400)) return void (err.textContent = '体重は数字（kg）で入れてください');
+    const out = { nickname: nick, ward, room, bed: M.bedLabel(ward, room), disease: val('#e-dx'), weight: wt ? Number(wt) : null };
     if (age) out.ageBand = age.dataset.v;
     if (sex) out.sex = sex.dataset.v;
     if ($('#e-adm') && $('#e-adm').value) out.admitDate = $('#e-adm').value;

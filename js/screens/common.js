@@ -43,6 +43,35 @@ export function missingChip(p, clickable = false) {
     : chip('未入力', 'r', 'bold');
 }
 
+// 患者ページの切り替え（TODO｜詳細）。左右スワイプでも切り替わる
+export function pageTabs(page) {
+  return `<div class="seg ptabs" role="tablist">${[[1, 'TODO'], [2, '詳細']].map(([n, l]) => `<button class="${page === n ? 'on' : ''}" role="tab" aria-selected="${page === n}" data-act="setPage" data-v="${n}">${l}</button>`).join('')}</div>`;
+}
+
+// 1枚目のプロフィール：年代・性別・入院日数（来院日）・体重・メインプロブレム・警告
+export function profileCard(p) {
+  const who = [M.ageLabel(p.ageBand), M.SEX[p.sex]].filter(Boolean).join(' ');
+  const when = p.location === 'inpatient' ? `入院${M.hospitalDay(p)}日目（${md(p.admitDate)}〜）` : `${md(p.visitDate)} 来院`;
+  const wt = p.weight ? `${p.weight}kg` : '';
+  const line = [who, when, wt].filter(Boolean).join(' ・ ');
+  const main = M.mainProblem(p);
+  const warns = [];
+  if (M.icWarn(p)) warns.push(chip(`家族IC ${M.icDays(p)}日前`, 'r', 'bold'));
+  for (const dv of M.activeDevices(p).filter(M.deviceWarn)) warns.push(chip(`${dv.type} ${M.deviceDay(dv)}日目`, 'r', 'bold'));
+  return `<div class="card pcard">
+    <div class="row-between"><div class="row-gap"><span class="pcode">${esc(p.code)}</span>${missingChip(p, true)}</div>${codeBadge(p, true)}</div>
+    <div class="row-between"><div class="pname">${nick(p)}${p.bed ? `　<span class="muted">${esc(p.bed)}</span>` : ''}</div><div class="tools"><button class="mini" data-act="revealId" data-pid="${p.id}">ID</button><button class="mini" data-act="editPatient" data-pid="${p.id}">編集</button></div></div>
+    <div class="muted">${esc(line)}</div>
+    ${main ? `<div class="mainprob">${esc(main)}</div>` : ''}
+    ${warns.length ? `<div class="chips-row">${warns.join('')}</div>` : ''}
+  </div>`;
+}
+
+// 2枚目の上に出す小さな見出し（だれのページか）
+export function miniHead(p) {
+  return `<div class="minihead"><span class="code">${esc(p.code)}</span><span class="muted">　${nick(p)}${p.bed ? `　${esc(p.bed)}` : ''}</span></div>`;
+}
+
 // 患者ページの一番上のカード
 export function patientCard(p, subLine, { readonly = false } = {}) {
   const tools = readonly

@@ -3,8 +3,8 @@
 import { esc, md, mdw, ymd, dayKey } from '../util.js';
 import { state, findPatient, savePatient, saveMeta } from '../store.js';
 import * as M from '../model.js';
-import { go, render } from '../router.js';
-import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick } from './common.js';
+import { go, render, current } from '../router.js';
+import { header, chip, demo, codeText, patientCard, taskRow, taskChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick, pageTabs, profileCard, miniHead } from './common.js';
 import * as ui from '../ui.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
 
@@ -22,6 +22,17 @@ function rowChips(p) {
   out.push(cultureChip(p));
   if (p.transferStart) out.push(chip(`転院調整中（${md(p.transferStart)}〜）`, 'g'));
   return out.join('');
+}
+
+// ページを切り替える（右から／左から少し動かす）
+export function setPage(n) {
+  const cur = current();
+  const was = Number(cur.params.page) === 2 ? 2 : 1;
+  if (was === n) return;
+  cur.params.page = n;
+  render();
+  const el = document.querySelector('.ppage');
+  if (el) el.classList.add(n > was ? 'from-right' : 'from-left');
 }
 
 // ---- 一覧 ----
@@ -92,7 +103,8 @@ function dailyRows(p) {
 }
 
 export const inPatientScreen = {
-  render({ id }) {
+  render(params) {
+    const { id } = params;
     const p = findPatient(id);
     if (!p || p.location !== 'inpatient') return `${header('患者', '入院患者')}${emptyState('この患者は入院患者にいません')}`;
     const todayKey = dayKey();
@@ -118,8 +130,12 @@ export const inPatientScreen = {
     const endingBox = p.ending
       ? `<div class="card ending"><div class="row-between"><div><span class="tag">${esc(M.endingLabel(p))}</span><span class="muted small">　${md(p.ending.at)}</span></div><button class="mini" data-act="cancelEnding" data-pid="${p.id}">取り消す</button></div></div>`
       : '';
-    return `${header('患者', '入院患者')}
-      ${patientCard(p, [demo(p), `入院${M.hospitalDay(p)}日目（${md(p.admitDate)}〜）`].filter(Boolean).join(' ・ '))}
+    const page = Number(params.page) === 2 ? 2 : 1;
+    if (page === 1) {
+      return `${header('患者', '入院患者')}
+      ${pageTabs(1)}
+      <div class="ppage">
+      ${profileCard(p)}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${admitOpen ? `${sec(`入院の手続き（残り${admitOpen}）`)}<div class="tlist">${admitTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
@@ -127,6 +143,14 @@ export const inPatientScreen = {
       <div class="tlist">${dailyRows(p)}${clinicalTodayRows(p)}${todayTasks.map((t) => taskRow(p, t)).join('')}</div>
       ${future.length ? `<div class="future">${future.map((t) => `<div class="frow" data-act="tapTask" data-pid="${p.id}" data-tid="${t.id}">予定　${mdw(t.dueDate)}　${esc(t.label)}</div>`).join('')}</div>` : ''}
       <div class="grid2"><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスク</button><button class="btn2" data-act="addTask" data-pid="${p.id}" data-dated="1">＋ 日付つき予定</button></div>
+      ${p.ending ? '' : `<button class="btn3" data-act="inEnd" data-pid="${p.id}">終わり方を選ぶ（退院・転院・転科・死亡）</button>`}
+      <div class="muted small center">左右にスワイプで「詳細」へ</div>
+      </div>`;
+    }
+    return `${header('患者', '入院患者')}
+      ${pageTabs(2)}
+      <div class="ppage">
+      ${miniHead(p)}
       ${sec('Problem List', `<button class="mini" data-act="addProblem" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card plist">${problems || '<div class="muted small">まだありません</div>'}</div>
       ${sec('最新の検査値')}
@@ -146,9 +170,12 @@ export const inPatientScreen = {
       </div>
       ${sec('経過メモ', `<button class="mini" data-act="addNote" data-pid="${p.id}">＋ 書く</button>`)}
       <div class="notes">${notes || '<div class="muted small">まだありません</div>'}</div>
-      ${p.ending ? '' : `<button class="btn3" data-act="inEnd" data-pid="${p.id}">終わり方を選ぶ（退院・転院・転科・死亡）</button>`}`;
+      </div>`;
   },
   actions: {
+    setPage(ds) { setPage(Number(ds.v)); },
+    swipeNext() { setPage(2); },
+    swipePrev() { setPage(1); },
     async tapDaily(ds) {
       const p = findPatient(ds.pid);
       const d = M.dailyGet(p);

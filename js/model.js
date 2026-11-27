@@ -180,6 +180,7 @@ export function newPatient(fields, templates) {
     room: fields.room || '',
     bed: bedLabel(fields.ward, fields.room) || fields.bed || '',
     disease: fields.disease || '',
+    weight: Number(fields.weight) > 0 ? Number(fields.weight) : null,
     codeStatus: fields.codeStatus || 'unknown',
     location: inpatient ? 'inpatient' : 'er',
     visitDate: ymd(),
@@ -225,6 +226,13 @@ export function dailySet(p, field, value, key = dayKey()) {
   // 古い記録は 14 日分だけ残す
   const keys = Object.keys(p.daily).sort();
   while (keys.length > 14) delete p.daily[keys.shift()];
+}
+
+// メインプロブレム：Problem List の #1、なければ登録した病名
+export function mainProblem(p) {
+  const first = (p.problems || [])[0];
+  if (first) return `#1 ${first}`;
+  return p.disease || '';
 }
 
 // 入っていない項目（ID・あだ名・年代・性別）があるか

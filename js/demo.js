@@ -14,6 +14,14 @@ const med = (p, f, end = null) => {
   return m;
 };
 const at = (day, hm) => new Date(`${day}T${hm}`).getTime();
+// 流量の薬（よく使う薬の組成を使い、mL/h で記録）
+const flow = (p, name, start, steps) => {
+  const f = K.findFav(K.defaultFavMeds(), name);
+  const m = K.newMed({ name, cat: f.cat, start, unit: f.unit, conc: f, perDay: f.perDay });
+  for (const [day, hm, ml] of steps) m.rates.push({ at: at(day, hm), ml });
+  p.meds.push(m);
+  return m;
+};
 const cul = (p, specimen, submitted, sets = null) => {
   const c = K.newCulture({ specimen, submitted, sets });
   p.cultures.push(c);
@@ -78,7 +86,7 @@ export async function seedDemo() {
     const p = await make({ ...f, location: 'inpatient', admitDate: d(-admitAgo) });
     return p;
   };
-  const e = await inp({ nickname: 'ジロー', ageBand: '90', sex: 'M', ward: '5W', room: '511', disease: '誤嚥性肺炎', codeStatus: 'dnar' }, 6);
+  const e = await inp({ nickname: 'ジロー', ageBand: '90', sex: 'M', ward: '5W', room: '511', disease: '誤嚥性肺炎', codeStatus: 'dnar', weight: 42 }, 6);
   e.problems = ['誤嚥性肺炎', 'アルツハイマー型認知症', '低アルブミン血症'];
   e.lastICDate = d(-3);
   e.outlook = 'nextweek';
@@ -126,8 +134,8 @@ export async function seedDemo() {
 
   const g = await inp({ nickname: 'タロウ', ageBand: '70', sex: 'M', ward: '5E', room: '508', disease: '心不全', codeStatus: 'dnar' }, 3);
   g.lastICDate = d(-2);
-  const dob = med(g, { name: 'DOB', cat: 'vaso', start: d(-3), unit: 'γ', rate: 3, rateAt: at(d(-3), '14:00') });
-  dob.rates.push({ at: at(d(-2), '10:00'), value: 2 }, { at: at(d(-1), '09:30'), value: 1 });
+  g.weight = 58;
+  const dob = flow(g, 'DOB', d(-3), [[d(-3), '14:00', 3.5], [d(-2), '10:00', 2.3], [d(-1), '09:30', 1.2]]);
   K.endMed(dob, d(-1), at(d(-1), '17:00'));
   med(g, { name: 'フロセミド', cat: 'other', start: d(-3) });
   await savePatient(g);
@@ -162,13 +170,14 @@ export async function seedDemo() {
   ];
   med(s, { name: 'MEPM', cat: 'abx', start: d(-4), planDays: 7 });
   med(s, { name: 'VCM', cat: 'abx', start: d(-4) }, d(-2));
-  const nad = med(s, { name: 'NAD', cat: 'vaso', start: d(-4), unit: 'γ', rate: 0.1, rateAt: at(d(-4), '22:00') });
-  nad.rates.push({ at: at(d(-3), '03:00'), value: 0.25 }, { at: at(d(-2), '08:00'), value: 0.15 }, { at: at(d(-1), '10:00'), value: 0.05 });
-  const vp = med(s, { name: 'バソプレシン', cat: 'vaso', start: d(-3), unit: '単位/h', rate: 1.8, rateAt: at(d(-3), '04:00') });
+  s.weight = 65;
+  flow(s, 'NAD', d(-4), [[d(-4), '22:00', 3.9], [d(-3), '03:00', 9.8], [d(-2), '08:00', 5.9], [d(-1), '10:00', 2]]);
+  const vp = flow(s, 'バソプレシン', d(-3), [[d(-3), '04:00', 1.8]]);
   K.endMed(vp, d(-2), at(d(-2), '12:00'));
-  const pro = med(s, { name: 'プロポフォール', cat: 'sed', start: d(-4), unit: 'mg/h', rate: 100, rateAt: at(d(-4), '22:30') });
-  pro.rates.push({ at: at(d(-2), '09:00'), value: 60 });
-  med(s, { name: 'フェンタニル', cat: 'sed', start: d(-4), unit: 'µg/h', rate: 50, rateAt: at(d(-4), '22:30') });
+  flow(s, 'プロポフォール', d(-4), [[d(-4), '22:30', 10], [d(-2), '09:00', 6]]);
+  flow(s, 'フェンタニル', d(-4), [[d(-4), '22:30', 1]]);
+  flow(s, 'ヘパリン', d(-3), [[d(-3), '12:00', 2], [d(-1), '08:00', 2.5]]);
+  flow(s, 'インスリン', d(-2), [[d(-2), '18:00', 2], [d(-1), '06:00', 1.5]]);
   const sb = cul(s, '血液', d(-4), 2);
   sb.positiveSets = 2;
   sb.gram = 'GNR';

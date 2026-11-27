@@ -163,6 +163,44 @@ async function run() {
   eq('終了の取り消し', [nad.end, nad.rates.length], [null, 2]);
   eq('数字の表示', K.fmtNum(0.15000000001), '0.15');
 
+  // γ などの計算（ユーザーの病院の組成）
+  const fav = (name) => K.findFav(K.defaultFavMeds(), name);
+  const mk = (name) => { const f = fav(name); return K.newMed({ name, cat: f.cat, unit: f.unit, conc: f, perDay: f.perDay }); };
+  const gNad = mk('NAD');
+  eq('NAD 5mg/50mL は 100µg/mL', K.concPerMl(gNad.conc, gNad.unit), 100);
+  eq('NAD 3mL/h・50kg ＝ 0.1γ', K.fmtDose(gNad, K.doseFromMl(gNad, 3, 50)), '0.1');
+  eq('γ は小数第2位まで', K.fmtDose(gNad, K.doseFromMl(gNad, 2.2, 62)), '0.06');
+  eq('体重がなければ γ は出ない', K.doseFromMl(gNad, 3, null), null);
+  eq('逆の計算：0.1γ・62kg', Math.round(K.mlFromDose(gNad, 0.1, 62) * 100) / 100, 3.72);
+  eq('計算式', K.formulaText(gNad, 3, 50), '3mL/h × 100µg/mL ÷ 50kg ÷ 60 ＝ 0.1γ');
+  const gDob = mk('DOB');
+  eq('DOB 150mg/50mL・2mL/h・60kg', K.fmtDose(gDob, K.doseFromMl(gDob, 2, 60)), '1.67');
+  const gAvp = mk('バソプレシン');
+  eq('バソプレシン 1単位/mL', K.doseText(gAvp, K.doseFromMl(gAvp, 1.8, null)), '1.8単位/h');
+  const gPro = mk('プロポフォール');
+  eq('プロポフォール 400mg/40mL・6mL/h', K.doseText(gPro, K.doseFromMl(gPro, 6, null)), '60mg/h');
+  const gMdz = mk('ミダゾラム');
+  eq('ミダゾラム 50mg/50mL・3mL/h', K.doseText(gMdz, K.doseFromMl(gMdz, 3, null)), '3mg/h');
+  const gDex = mk('デクスメデトミジン');
+  eq('デクスメデトミジン 200µg/50mL・5mL/h', K.doseText(gDex, K.doseFromMl(gDex, 5, null)), '20µg/h');
+  const gFen = mk('フェンタニル');
+  eq('フェンタニル 0.5mg/10mL・1mL/h', K.doseText(gFen, K.doseFromMl(gFen, 1, null)), '50µg/h');
+  const gNic = mk('ニカルジピン');
+  eq('ニカルジピン 40mg/40mL・5mL/h', K.doseText(gNic, K.doseFromMl(gNic, 5, null)), '5mg/h');
+  const gHep = mk('ヘパリン');
+  eq('ヘパリン 1万U/50mL・2mL/h（1日量も）', K.doseText(gHep, K.doseFromMl(gHep, 2, null)), '400U/h（9600U/日）');
+  const gIns = mk('インスリン');
+  eq('インスリン 50U/50mL・2mL/h', K.doseText(gIns, K.doseFromMl(gIns, 2, null)), '2U/h');
+  gNad.rates.push({ at: Date.now() - 3600000, ml: 3 });
+  eq('今の量と mL/h', K.flowNow(gNad, 50), { dose: '0.1γ', ml: '3mL/h' });
+  ok('体重なしは mL/h だけ', K.flowNow(gNad, null).needWeight && K.flowNow(gNad, null).dose === '3mL/h');
+  K.endMed(gNad, ymd());
+  eq('mL/h の薬を止めると 0mL/h', gNad.rates[gNad.rates.length - 1].ml, 0);
+  const oldFavs = [{ name: 'NAD', cat: 'vaso', unit: 'γ' }, { name: 'CTRX', cat: 'abx', unit: '' }];
+  ok('0.3.0 のよく使う薬に組成を足す', K.upgradeFavMeds(oldFavs) && oldFavs[0].amount === 5 && !!K.findFav(oldFavs, 'ニカルジピン') && !K.upgradeFavMeds(oldFavs));
+  eq('メインプロブレム（#1）', M.mainProblem({ problems: ['敗血症性ショック', 'AKI'], disease: '敗血症' }), '#1 敗血症性ショック');
+  eq('メインプロブレム（病名）', M.mainProblem({ problems: [], disease: '腹痛' }), '腹痛');
+
   // 過去へ移すと続いている薬は終わる
   const pm = M.newPatient({ code: 'MMMM', nickname: 'x', ageBand: '70', sex: 'M', location: 'inpatient', admitDate: addDays(ymd(), -3) }, tpl);
   pm.meds.push(K.newMed({ name: 'MEPM', cat: 'abx', start: addDays(ymd(), -3) }));

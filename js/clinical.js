@@ -22,7 +22,12 @@ export function medsBlock(p, { readonly = false } = {}) {
   const today = ymd();
   const act = (m) => (readonly ? '' : `data-act="tapMed" data-pid="${p.id}" data-mid="${m.id}"`);
   const row = (m) => {
-    const s = K.medStatus(m, today);
+    const s = K.medStatus(m, today, p.weight);
+    if (s.flow) {
+      // 流量の薬：上に量（γ など）、下に mL/h と何日目
+      const sub = [s.flow.ml, `${s.day}日目`].filter(Boolean).join(' ・ ');
+      return `<div class="kv mrow" ${act(m)}><span>${dot(m.cat)}${esc(m.name)}</span><span class="mdose"><span class="mdose-main">${esc(s.flow.dose)}</span><span class="muted tiny ${s.flow.needWeight ? 'warn-a' : ''}">${esc(sub)}</span></span></div>`;
+    }
     return `<div class="kv mrow" ${act(m)}><span>${dot(m.cat)}${esc(m.name)}</span><span>${chip(s.text, s.tone)}</span></div>`;
   };
   const sorted = meds.slice().sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
@@ -89,19 +94,58 @@ function medSheetHtml() {
     <div id="md-plan-box"><label class="lbl" for="md-plan">予定日数（なくても可）</label>
       <div class="row-gap"><input id="md-plan" type="text" inputmode="numeric" autocomplete="off" placeholder="例：7"><div class="chips-row nowrap">${[5, 7, 10, 14].map((n) => `<button class="pill" data-act="medPlan" data-v="${n}">${n}</button>`).join('')}</div></div></div>
     <div id="md-flow-box" class="hidden">
-      <div class="lbl">最初の流量と単位</div>
-      <div class="rate-unit"><input id="md-rate" type="text" inputmode="decimal" autocomplete="off" placeholder="例：0.05"><input id="md-unit" type="text" autocomplete="off" value="γ" aria-label="単位"></div>
+      <div class="lbl">組成</div>
+      <div id="md-conc-fixed" class="conc-fixed"></div>
+      <div id="md-conc-edit" class="hidden stack">
+        <div class="conc-grid"><input id="md-amt" type="text" inputmode="decimal" autocomplete="off" placeholder="薬の量" aria-label="薬の量"><select id="md-amtu" aria-label="量の単位">${['mg', 'µg', 'U', '単位'].map((u) => `<option>${u}</option>`).join('')}</select><span class="muted">／</span><input id="md-vol" type="text" inputmode="decimal" autocomplete="off" placeholder="全量" aria-label="全量"><span class="muted">mL</span></div>
+        <label class="lbl" for="md-unit">表示の単位</label><select id="md-unit">${UNIT_OPTS.map((u) => `<option>${u}</option>`).join('')}</select>
+      </div>
+      <div id="md-weight-box" class="hidden"><label class="lbl" for="md-weight">体重（kg）　γ の計算に使います</label><input id="md-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="例：62"></div>
+      <label class="lbl" for="md-ml">最初の流量（mL/h）</label><input id="md-ml" type="text" inputmode="decimal" autocomplete="off" placeholder="例：3">
+      <div id="md-calc" class="calc"></div>
       <label class="lbl" for="md-time">始めた時刻</label><input id="md-time" type="time" value="${nowHHMM()}">
     </div>
     <div class="err" id="md-err"></div>
     <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="medOk">追加する</button></div>`;
 }
 
-function syncMedSheet(cat, keepUnit = false) {
+const UNIT_OPTS = ['γ', 'mg/h', 'µg/h', 'U/h', '単位/h'];
+let sheetP = null; // 薬の小窓を開いている患者
+
+const num = (v) => { const t = String(v ?? '').normalize('NFKC').trim(); return t !== '' && Number.isFinite(Number(t)) ? Number(t) : null; };
+const weightIn = (id) => num($(id) && $(id).value) || (sheetP && sheetP.weight) || null;
+
+// 小窓の中身から、組成・単位を読む（よく使う薬に組成があればそれを使う）
+function flowDraft() {
+  const name = $('#md-name').value.trim();
+  const cat = pickedCat();
+  const f = K.findFav(state.meta.favMeds, name);
+  if (f && f.amount && f.cat === cat) return { unit: f.unit, conc: { amount: f.amount, amountUnit: f.amountUnit, volume: f.volume }, perDay: !!f.perDay, fixed: true };
+  const amt = num($('#md-amt').value);
+  const vol = num($('#md-vol').value);
+  return { unit: $('#md-unit').value, conc: amt && vol ? { amount: amt, amountUnit: $('#md-amtu').value, volume: vol } : null, perDay: false, fixed: false };
+}
+
+function refreshMedSheet() {
+  const cat = pickedCat();
   const flow = !!(K.MED_CATS[cat] || {}).flow;
   $('#md-flow-box').classList.toggle('hidden', !flow);
   $('#md-plan-box').classList.toggle('hidden', flow);
-  if (flow && !keepUnit) $('#md-unit').value = K.MED_CATS[cat].unit;
+  if (!flow) return;
+  const d = flowDraft();
+  const m = { unit: d.unit, conc: d.conc, perDay: d.perDay };
+  $('#md-conc-fixed').classList.toggle('hidden', !d.fixed);
+  $('#md-conc-edit').classList.toggle('hidden', d.fixed);
+  if (d.fixed) $('#md-conc-fixed').textContent = `${K.concText(m)}　表示：${d.unit}`;
+  const needW = K.isGamma(m) && !(sheetP && sheetP.weight);
+  $('#md-weight-box').classList.toggle('hidden', !needW);
+  const ml = num($('#md-ml').value);
+  $('#md-calc').textContent = ml !== null ? K.formulaText(m, ml, weightIn('#md-weight')) : '';
+}
+
+function syncMedSheet(cat) {
+  if (!K.findFav(state.meta.favMeds, $('#md-name').value.trim()) && K.MED_CATS[cat] && K.MED_CATS[cat].flow) $('#md-unit').value = K.MED_CATS[cat].unit;
+  refreshMedSheet();
 }
 
 function pickSeg(group, value) {
@@ -112,13 +156,60 @@ function pickSeg(group, value) {
 
 const pickedCat = () => { const b = $('.seg[data-pick="mcat"] .on'); return b ? b.dataset.v : 'other'; };
 
-function rateSheet(title, value = '') {
-  return ui.custom(`<div class="sheet-title">${esc(title)}</div>
-    <label class="lbl" for="rt-val">流量</label><input id="rt-val" type="text" inputmode="decimal" autocomplete="off" value="${esc(value)}">
+// 組成のない（0.3.0 で作った）流量の薬は、よく使う薬の組成を使えるようにする
+function adoptConc(m) {
+  if (K.hasConc(m)) return;
+  const f = K.findFav(state.meta.favMeds, m.name);
+  if (f && f.amount) {
+    m.conc = { amount: f.amount, amountUnit: f.amountUnit, volume: f.volume };
+    m.unit = f.unit;
+    if (f.perDay) m.perDay = true;
+  }
+}
+
+let rateMed = null;
+function refreshRate() {
+  const m = rateMed;
+  const ml = num($('#rt-ml').value);
+  $('#rt-calc').textContent = ml !== null ? K.formulaText(m, ml, weightIn('#rt-weight')) : '';
+  const dose = num($('#rt-dose') && $('#rt-dose').value);
+  const r = $('#rt-rev');
+  if (!r) return;
+  const back = dose !== null ? K.mlFromDose(m, dose, weightIn('#rt-weight')) : null;
+  r.innerHTML = back !== null
+    ? `${esc(K.fmtDose(m, dose))}${esc(m.unit)} にするには <b>${esc(K.fmtNum(Math.round(back * 10) / 10))}mL/h</b>　<button class="mini" data-act="useRev" data-v="${Math.round(back * 10) / 10}">この流量を入れる</button>`
+    : (dose !== null && K.isGamma(m) ? '体重を入れると計算できます' : '');
+}
+
+function rateSheet(p, m) {
+  rateMed = m;
+  sheetP = p;
+  const cur = K.curRate(m);
+  if (!K.hasConc(m)) {
+    // 組成がない薬は、量をそのまま入れる（0.3.0 と同じ）
+    return ui.custom(`<div class="sheet-title">${esc(m.name)} の流量（${esc(m.unit)}）</div>
+      <label class="lbl" for="rt-val">流量</label><input id="rt-val" type="text" inputmode="decimal" autocomplete="off" value="${esc(cur && cur.value !== undefined ? K.fmtNum(cur.value) : '')}">
+      <div class="ward-room"><input id="rt-date" type="date" value="${ymd()}" aria-label="日付"><input id="rt-time" type="time" value="${nowHHMM()}" aria-label="時刻"></div>
+      <div class="err" id="rt-err"></div>
+      <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="rateOk">記録する</button></div>`);
+  }
+  const needW = K.isGamma(m) && !p.weight;
+  const pr = ui.custom(`<div class="sheet-title">${esc(m.name)} の流量</div>
+    <div class="conc-fixed">組成：${esc(K.concText(m))}</div>
+    ${needW ? '<label class="lbl" for="rt-weight">体重（kg）　γ の計算に使います</label><input id="rt-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="例：62">' : ''}
+    <label class="lbl" for="rt-ml">流量（mL/h）　止めたときは 0</label><input id="rt-ml" type="text" inputmode="decimal" autocomplete="off" value="${esc(cur && cur.ml !== undefined ? K.fmtNum(cur.ml) : '')}">
+    <div id="rt-calc" class="calc"></div>
+    <details class="rev"><summary>${esc(m.unit)} から mL/h を計算する</summary>
+      <div class="row-gap"><input id="rt-dose" type="text" inputmode="decimal" autocomplete="off" placeholder="${K.isGamma(m) ? '例：0.1' : '例：5'}" data-autofocus="no"><span class="muted">${esc(m.unit)}</span></div>
+      <div id="rt-rev" class="muted small"></div>
+    </details>
     <label class="lbl" for="rt-time">時刻</label>
     <div class="ward-room"><input id="rt-date" type="date" value="${ymd()}" aria-label="日付"><input id="rt-time" type="time" value="${nowHHMM()}" aria-label="時刻"></div>
     <div class="err" id="rt-err"></div>
     <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="rateOk">記録する</button></div>`);
+  for (const id of ['#rt-ml', '#rt-dose', '#rt-weight']) if ($(id)) $(id).addEventListener('input', refreshRate);
+  refreshRate();
+  return pr;
 }
 
 async function pickDate(title, initial) {
@@ -137,17 +228,23 @@ async function done(p, msg) {
 export const clinicalActions = {
   async addMed(ds) {
     const p = P(ds);
+    sheetP = p;
     const pr = ui.custom(medSheetHtml());
     $('.seg[data-pick="mcat"]').addEventListener('picked', (e) => syncMedSheet(e.detail.value));
+    for (const id of ['#md-name', '#md-amt', '#md-vol', '#md-ml', '#md-weight']) $(id).addEventListener('input', refreshMedSheet);
+    for (const id of ['#md-amtu', '#md-unit']) $(id).addEventListener('change', refreshMedSheet);
     const r = await pr;
     if (!r) return;
+    if (r.weight) p.weight = r.weight;
     const m = K.newMed(r);
     p.meds = [...(p.meds || []), m];
-    // 一度入れた薬は「よく使う薬」に登録
+    // 一度入れた薬は「よく使う薬」に登録（流量の薬は組成も）
     const favs = state.meta.favMeds || (state.meta.favMeds = []);
-    const f = K.findFav(favs, r.name);
-    if (!f) favs.push({ name: r.name, cat: r.cat, unit: r.unit || '' });
-    else if (K.isFlow(m) && r.unit && f.unit !== r.unit) f.unit = r.unit;
+    if (!K.findFav(favs, r.name)) {
+      const f = { name: r.name, cat: r.cat, unit: r.unit || '' };
+      if (r.conc) Object.assign(f, r.conc);
+      favs.push(f);
+    }
     await saveMeta('favMeds');
     await done(p, `${m.name} を追加しました`);
   },
@@ -157,8 +254,13 @@ export const clinicalActions = {
     $('#md-name').value = ds.v;
     if (!f) return;
     pickSeg('mcat', f.cat);
-    syncMedSheet(f.cat, true);
-    if (K.MED_CATS[f.cat].flow) $('#md-unit').value = f.unit || K.MED_CATS[f.cat].unit;
+    if (K.MED_CATS[f.cat] && K.MED_CATS[f.cat].flow && f.unit) $('#md-unit').value = f.unit;
+    refreshMedSheet();
+  },
+
+  useRev(ds) {
+    $('#rt-ml').value = ds.v;
+    refreshRate();
   },
 
   medPlan(ds) {
@@ -172,13 +274,15 @@ export const clinicalActions = {
     const cat = pickedCat();
     const start = $('#md-start').value || ymd();
     const flow = !!K.MED_CATS[cat].flow;
-    const out = { name, cat, start, planDays: null, unit: '', rate: null, rateAt: null };
+    const out = { name, cat, start, planDays: null, unit: '', ml: null, rateAt: null };
     if (flow) {
-      const rate = $('#md-rate').value.normalize('NFKC').trim();
-      if (rate && !Number.isFinite(Number(rate))) return void (err.textContent = '流量は数字で入れてください');
-      out.rate = rate === '' ? null : Number(rate);
-      out.unit = $('#md-unit').value.trim() || K.MED_CATS[cat].unit;
-      out.rateAt = atOf(start, $('#md-time').value);
+      const d = flowDraft();
+      if (!d.conc) return void (err.textContent = '組成（薬の量と全量 mL）を入れてください');
+      const mlT = $('#md-ml').value.normalize('NFKC').trim();
+      if (mlT && num(mlT) === null) return void (err.textContent = '流量は数字（mL/h）で入れてください');
+      const w = num($('#md-weight').value);
+      if ($('#md-weight').value.trim() && !(w > 0)) return void (err.textContent = '体重は数字（kg）で入れてください');
+      Object.assign(out, { unit: d.unit, conc: d.conc, perDay: d.perDay, ml: num(mlT), rateAt: atOf(start, $('#md-time').value), weight: w });
     } else {
       const plan = $('#md-plan').value.normalize('NFKC').trim();
       if (plan && !/^\d{1,3}$/.test(plan)) return void (err.textContent = '予定日数は数字で入れてください');
@@ -204,17 +308,20 @@ export const clinicalActions = {
     }
     if (flow && (m.rates || []).length) opts.push({ v: 'rates', label: `流量の記録（${m.rates.length}件）` });
     opts.push({ v: 'start', label: `開始日を変える（${md(m.start)}）`, tone: 'btn3' }, { v: 'rename', label: '名前を変える', tone: 'btn3' }, { v: 'del', label: '削除する', tone: 'danger' });
-    const s = K.medStatus(m);
-    const v = await ui.choose(`${m.name}（${(K.MED_CATS[m.cat] || K.MED_CATS.other).label}）`, `今：${esc(s.text)}`, opts);
+    const s = K.medStatus(m, ymd(), p.weight);
+    const conc = K.concText(m);
+    const v = await ui.choose(`${m.name}（${(K.MED_CATS[m.cat] || K.MED_CATS.other).label}）`, `今：${esc(s.text)}${conc ? `<br><span class="small">組成：${esc(conc)}</span>` : ''}`, opts);
     if (!v) return;
     if (v === 'rate') {
-      const cur = K.curRate(m);
-      const pr = rateSheet(`${m.name} の流量（${m.unit}）`, cur ? K.fmtNum(cur.value) : '');
-      const r = await pr;
+      adoptConc(m);
+      const r = await rateSheet(p, m);
       if (!r) return;
+      if (r.weight) p.weight = r.weight;
+      delete r.weight;
       m.rates.push(r);
       m.rates.sort((a, b) => a.at - b.at);
-      return done(p, `${m.name}：${K.fmtNum(r.value)}${m.unit}`);
+      const f = K.flowNow(m, p.weight, r.at);
+      return done(p, `${m.name}：${f.dose}${f.ml && !f.needWeight ? `（${f.ml}）` : ''}`);
     }
     if (v === 'endToday') {
       K.endMed(m, ymd());
@@ -241,10 +348,15 @@ export const clinicalActions = {
     }
     if (v === 'rates') {
       const list = m.rates.slice().reverse();
-      const r = await ui.choose(`${m.name} の流量の記録`, 'タップすると、その記録を消せます', list.map((x, i) => ({ v: String(m.rates.length - 1 - i), label: `${mdw(ymd(new Date(x.at)))} ${hhmm(x.at)}　${K.fmtNum(x.value)}${m.unit}`, tone: 'btn2' })));
+      const lab = (x) => {
+        if (x.ml === undefined) return `${K.fmtNum(x.value)}${m.unit}`;
+        const d = K.rateDose(m, x, p.weight);
+        return `${K.fmtNum(x.ml)}mL/h${d !== null ? `（${K.doseText(m, d)}）` : ''}`;
+      };
+      const r = await ui.choose(`${m.name} の流量の記録`, 'タップすると、その記録を消せます', list.map((x, i) => ({ v: String(m.rates.length - 1 - i), label: `${mdw(ymd(new Date(x.at)))} ${hhmm(x.at)}　${lab(x)}`, tone: 'btn2' })));
       if (r === null) return;
       const x = m.rates[Number(r)];
-      const ok = await ui.choose('この記録を消しますか？', `${hhmm(x.at)}　${K.fmtNum(x.value)}${esc(m.unit)}`, [{ v: 'yes', label: '消す', tone: 'danger' }]);
+      const ok = await ui.choose('この記録を消しますか？', `${hhmm(x.at)}　${esc(lab(x))}`, [{ v: 'yes', label: '消す', tone: 'danger' }]);
       if (ok !== 'yes') return;
       m.rates.splice(Number(r), 1);
       return done(p);
@@ -271,9 +383,18 @@ export const clinicalActions = {
   },
 
   rateOk() {
-    const v = $('#rt-val').value.normalize('NFKC').trim();
-    if (v === '' || !Number.isFinite(Number(v))) return void ($('#rt-err').textContent = '流量を数字で入れてください（止めたときは 0）');
-    ui.resolveSheet({ at: atOf($('#rt-date').value || ymd(), $('#rt-time').value || nowHHMM()), value: Number(v) });
+    const at = atOf($('#rt-date').value || ymd(), $('#rt-time').value || nowHHMM());
+    if ($('#rt-val')) {
+      const v = num($('#rt-val').value);
+      if (v === null) return void ($('#rt-err').textContent = '流量を数字で入れてください（止めたときは 0）');
+      return void ui.resolveSheet({ at, value: v });
+    }
+    const ml = num($('#rt-ml').value);
+    if (ml === null || ml < 0) return void ($('#rt-err').textContent = '流量を数字（mL/h）で入れてください（止めたときは 0）');
+    const wEl = $('#rt-weight');
+    const w = wEl ? num(wEl.value) : null;
+    if (wEl && wEl.value.trim() && !(w > 0)) return void ($('#rt-err').textContent = '体重は数字（kg）で入れてください');
+    ui.resolveSheet({ at, ml, weight: w });
   },
 
   // ---- 培養の操作 ----

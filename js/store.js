@@ -3,7 +3,7 @@
 import { openDB, get, getAll, put, del, deleteDB } from './db.js';
 import { DEFAULT_TEMPLATES } from './model.js';
 import { defaultLabItems } from './labs.js';
-import { defaultFavMeds } from './meds.js';
+import { defaultFavMeds, upgradeFavMeds } from './meds.js';
 
 export const MAIN_DB = 'medpilot';
 export const DEMO_DB = 'medpilot-demo';
@@ -48,6 +48,7 @@ export async function init() {
   if (!state.meta.history) state.meta.history = { diseases: [], tasks: [] };
   if (!state.meta.security) state.meta.security = { pin: null, pinFails: 0, passFails: 0 };
   if (!state.meta.favMeds) state.meta.favMeds = defaultFavMeds();
+  else if (upgradeFavMeds(state.meta.favMeds)) await saveMeta('favMeds');
   if (!state.meta.notifyQueue) state.meta.notifyQueue = [];
   if (!state.meta.notifyState) state.meta.notifyState = { morning: {} };
   await openData(!!state.meta.settings.demo);

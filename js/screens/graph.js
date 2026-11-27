@@ -11,7 +11,7 @@ const W = 360;
 const L = 66; // 左の名前の幅
 const R = 10;
 const PW = W - L - R;
-const CAT_ORDER = { abx: 0, vaso: 1, sed: 2, other: 3 };
+const CAT_ORDER = { abx: 0, vaso: 1, sed: 2, drip: 3, other: 4 };
 const PERIODS = [['1w', '1週間'], ['2w', '2週間'], ['all', '全期間']];
 
 function range(p, period) {
@@ -73,9 +73,18 @@ function medRows(p, sc, start, end, y0) {
       const h = 30;
       const base = y + h + 4;
       const rates = (m.rates || []).slice().sort((a, b) => a.at - b.at);
-      const max = Math.max(...rates.map((r) => r.value), 0) || 1;
+      // γ などに直せるときは直した値、直せないとき（体重なしなど）は mL/h で描く
+      let vals = rates.map((r) => K.rateDose(m, r, p.weight));
+      let unit = m.unit;
+      let fmt = (v) => K.fmtDose(m, v);
+      if (vals.some((v) => v === null)) {
+        vals = rates.map((r) => (r.ml !== undefined ? r.ml : r.value));
+        unit = rates.some((r) => r.ml !== undefined) ? 'mL/h' : m.unit;
+        fmt = (v) => K.fmtNum(v);
+      }
+      const max = Math.max(...vals, 0) || 1;
       const yv = (v) => base - (v / max) * h;
-      out += `<text x="0" y="${y + 14}" class="g-name">${esc(short(m.name))}</text><text x="0" y="${y + 27}" class="g-unit">${esc(m.unit)}</text>`;
+      out += `<text x="0" y="${y + 14}" class="g-name">${esc(short(m.name))}</text><text x="0" y="${y + 27}" class="g-unit">${esc(unit)}</text>`;
       out += `<line x1="${L}" y1="${base}" x2="${L + PW}" y2="${base}" class="g-line"/>`;
       if (rates.length) {
         const stopMs = m.end ? Math.min(parseYmd(m.end).getTime() + 86400000, sc.endMs) : Math.min(nowMs, sc.endMs);
@@ -83,16 +92,17 @@ function medRows(p, sc, start, end, y0) {
         let labels = '';
         for (let i = 0; i < rates.length; i++) {
           const r = rates[i];
+          const val = vals[i];
           const a = r.at;
           const b = i + 1 < rates.length ? rates[i + 1].at : stopMs;
-          if (r.value <= 0 || b <= sc.startMs || a >= sc.endMs || b <= a) continue;
+          if (!(val > 0) || b <= sc.startMs || a >= sc.endMs || b <= a) continue;
           const xa = sc.xMs(a);
           const xb = sc.xMs(b);
-          const yy = f1(yv(r.value));
+          const yy = f1(yv(val));
           d += `M${f1(xa)} ${base} V${yy} H${f1(xb)} V${base} `;
           // 幅のある区間だけ、真ん中に数字を出す
           if (xb - xa >= 20) {
-            labels += `<text x="${f1((xa + xb) / 2)}" y="${f1(Math.max(y + 8, yy - 3))}" class="g-val" text-anchor="middle" style="fill:${color}">${esc(K.fmtNum(r.value))}</text>`;
+            labels += `<text x="${f1((xa + xb) / 2)}" y="${f1(Math.max(y + 8, yy - 3))}" class="g-val" text-anchor="middle" style="fill:${color}">${esc(fmt(val))}</text>`;
           }
         }
         out += `<path d="${d}" style="fill:${color};fill-opacity:.22;stroke:${color};stroke-width:1.4"/>${labels}`;

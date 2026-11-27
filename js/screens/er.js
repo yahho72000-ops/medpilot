@@ -5,7 +5,8 @@ import { state, findPatient, savePatient, existingCodes, remember } from '../sto
 import * as M from '../model.js';
 import { go } from '../router.js';
 import { encryptId, randomCode } from '../crypto.js';
-import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick } from './common.js';
+import { header, chip, demo, codeText, patientCard, taskRow, taskChip, remainChip, labGrid, devicesBlock, sec, emptyState, missingChip, nick, pageTabs, profileCard, miniHead } from './common.js';
+import { setPage } from './inpatient.js';
 import * as ui from '../ui.js';
 import { wardRoomFields } from '../actions.js';
 import { medsBlock, culturesBlock, clinicalTodayRows, cultureChip } from '../clinical.js';
@@ -60,7 +61,8 @@ function nameLineHtml(p) {
 
 // ---- 患者ページ ----
 export const erPatientScreen = {
-  render({ id }) {
+  render(params) {
+    const { id } = params;
     const p = findPatient(id);
     if (!p || p.location !== 'er') return `${header('患者', '救急外来')}${emptyState('この患者は救急外来にいません')}`;
     const erTasks = p.tasks.filter((t) => t.group === 'er');
@@ -74,14 +76,26 @@ export const erPatientScreen = {
     const endingButtons = p.ending
       ? ''
       : `${sec('終わり方')}<div class="grid3">${Object.entries(M.ER_ENDINGS).map(([k, e]) => `<button class="btn3" data-act="erEnd" data-pid="${p.id}" data-type="${k}">${esc(e.label)}</button>`).join('')}</div>`;
-    return `${header('患者', '救急外来')}
-      ${patientCard(p, [demo(p), `${md(p.visitDate)} 来院`].filter(Boolean).join(' ・ '))}
+    const page = Number(params.page) === 2 ? 2 : 1;
+    if (page === 1) {
+      return `${header('患者', '救急外来')}
+      ${pageTabs(1)}
+      <div class="ppage">
+      ${profileCard(p)}
       ${endingBox}
       ${listTasks.length ? `${sec(M.GROUP_TITLES[listGroup])}<div class="tlist">${listTasks.map((t) => taskRow(p, t)).join('')}</div>` : ''}
       ${sec('検査・説明')}
       <div class="tlist">${clinicalTodayRows(p)}${erTasks.map((t) => taskRow(p, t)).join('')}</div>
       <div class="muted small">タップすると、状態を選んだり名前を変えたりできます</div>
       <div class="grid2"><button class="btn2" data-act="addSame" data-pid="${p.id}">＋ 同じ種類を追加</button><button class="btn2" data-act="addTask" data-pid="${p.id}">＋ タスクを追加</button></div>
+      ${endingButtons}
+      <div class="muted small center">左右にスワイプで「詳細」へ</div>
+      </div>`;
+    }
+    return `${header('患者', '救急外来')}
+      ${pageTabs(2)}
+      <div class="ppage">
+      ${miniHead(p)}
       ${sec('検査値')}
       ${labGrid(p)}
       <div class="grid2"><button class="btn2" data-act="openLabImport" data-pid="${p.id}">検査値を読み込む</button><button class="btn2" data-act="openGraph" data-pid="${p.id}">経過グラフ</button></div>
@@ -90,8 +104,13 @@ export const erPatientScreen = {
       ${sec('培養', `<button class="mini" data-act="addCulture" data-pid="${p.id}">＋ 追加</button>`)}
       <div class="card clist">${culturesBlock(p)}</div>
       ${sec('デバイス', `<button class="mini" data-act="addDevice" data-pid="${p.id}">＋ 追加</button>`)}
-      <div class="kvlist">${devicesBlock(p)}</div>
-      ${endingButtons}`;
+      <div class="card kvlist">${devicesBlock(p)}</div>
+      </div>`;
+  },
+  actions: {
+    setPage(ds) { setPage(Number(ds.v)); },
+    swipeNext() { setPage(2); },
+    swipePrev() { setPage(1); },
   },
 };
 
@@ -117,6 +136,7 @@ export const registerScreen = {
       <div class="field"><div class="lbl">病棟・病室（救急外来は ER ＋ブース番号）</div>${wardRoomFields('r', to === 'er' ? 'ER' : '', '')}</div>
       <div class="field"><label class="lbl" for="r-dx">病名</label><input id="r-dx" type="text" autocomplete="off">
         ${sug.length ? `<div class="chips-row">${sug.map((s) => `<button class="pill" data-act="fillDx" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}</div>
+      <div class="field"><label class="lbl" for="r-wt">体重（kg）　γ の計算に使います</label><input id="r-wt" type="text" inputmode="decimal" autocomplete="off" placeholder="例：62"></div>
       <div class="field"><div class="lbl">CODE</div><div class="seg" data-pick="code">${codes}</div></div>
       <div class="muted small">識別番号（例：7K3F）は登録すると自動で付きます。</div>
       <div class="err" id="reg-err"></div>
@@ -146,6 +166,8 @@ export const registerScreen = {
       const ageBand = pick('age');
       const sex = pick('sex');
       const to = pick('to') || 'er';
+      const wt = $('#r-wt').value.normalize('NFKC').trim();
+      if (wt && !(Number(wt) > 0 && Number(wt) < 400)) return void (err.textContent = '体重は数字（kg）で入れてください');
       if (id1 || id2) {
         if (!/^\d{8}$/.test(id1)) return void (err.textContent = '患者IDは8桁の数字で入れてください');
         if (id1 !== id2) return void (err.textContent = '2回入れたIDが一致しません');
@@ -165,6 +187,7 @@ export const registerScreen = {
           room: $('#r-room').value.trim(),
           disease: $('#r-dx').value.trim(),
           codeStatus: pick('code') || 'unknown',
+          weight: wt ? Number(wt) : null,
           location: to === 'in' ? 'inpatient' : 'er',
           admitDate: $('#r-admit').value || ymd(),
         }, state.meta.templates);

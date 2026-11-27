@@ -13,7 +13,7 @@ import * as N from '../notify.js';
 import * as K from '../meds.js';
 import { TASK_NAME_NOTE } from '../actions.js';
 
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.4.0';
 
 const seg = (act, cur, opts) =>
   `<div class="seg">${opts.map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -383,11 +383,11 @@ export const favMedsScreen = {
       .map(([cat, c]) => {
         const list = favs.map((f, i) => ({ f, i })).filter(({ f }) => f.cat === cat);
         if (!list.length) return '';
-        return `${sec(c.label)}<div class="card kvlist">${list.map(({ f, i }) => `<button class="kv btnrow" data-act="editFav" data-i="${i}"><span><span class="mdot" style="background:${c.color}"></span>${esc(f.name)}</span><span class="muted small">${esc(f.unit || '')} ›</span></button>`).join('')}</div>`;
+        return `${sec(c.label)}<div class="card kvlist">${list.map(({ f, i }) => `<button class="kv btnrow" data-act="editFav" data-i="${i}"><span><span class="mdot" style="background:${c.color}"></span>${esc(f.name)}</span><span class="muted small">${esc([f.amount ? `${K.fmtNum(f.amount)}${f.amountUnit}／${K.fmtNum(f.volume)}mL` : '', f.unit].filter(Boolean).join('　'))} ›</span></button>`).join('')}</div>`;
       })
       .join('');
     return `${header('よく使う薬', '設定')}
-      <div class="muted small">薬を追加するときに、ここから選べます。新しい名前の薬を入れると自動でここに増えます。</div>
+      <div class="muted small">薬を追加するときに、ここから選べます。新しい名前の薬を入れると自動でここに増えます。流量の薬は、ここの組成で mL/h から γ などを計算します。</div>
       ${rows || '<div class="muted small">まだありません</div>'}
       <button class="btn2" data-act="addFav">＋ 薬を追加</button>
       <button class="btn3" data-act="resetFav">最初の状態に戻す</button>`;
@@ -412,10 +412,21 @@ export const favMedsScreen = {
     },
     favOk() {
       const name = $('#fv-name').value.trim();
-      if (!name) return void ($('#fv-err').textContent = '名前を入れてください');
+      const err = $('#fv-err');
+      if (!name) return void (err.textContent = '名前を入れてください');
       const on = $('.seg[data-pick="fcat"] .on');
       const cat = on ? on.dataset.v : 'other';
-      ui.resolveSheet({ name, cat, unit: K.MED_CATS[cat].flow ? $('#fv-unit').value.trim() || K.MED_CATS[cat].unit : '' });
+      const out = { name, cat, unit: '' };
+      if (K.MED_CATS[cat].flow) {
+        const n = (v) => { const t = String(v).normalize('NFKC').trim(); return t && Number.isFinite(Number(t)) && Number(t) > 0 ? Number(t) : null; };
+        const amount = n($('#fv-amt').value);
+        const volume = n($('#fv-vol').value);
+        if (!amount || !volume) return void (err.textContent = '組成（薬の量と全量 mL）を数字で入れてください');
+        Object.assign(out, { unit: $('#fv-unit').value, amount, amountUnit: $('#fv-amtu').value, volume });
+        if (K.concPerMl(out, out.unit) === null) return void (err.textContent = '量の単位と表示の単位が合いません（例：mg → γ・mg/h、U → U/h）');
+        if ($('#fv-perday').checked) out.perDay = true;
+      }
+      ui.resolveSheet(out);
     },
     async resetFav() {
       const ok = await ui.choose('最初の状態に戻しますか？', '自分で足した薬は消えます（患者の記録は消えません）。', [{ v: 'yes', label: '戻す', tone: 'btn' }]);
@@ -432,14 +443,20 @@ function favSheet(f) {
   const pr = ui.custom(`<div class="sheet-title">${f ? 'よく使う薬を編集' : 'よく使う薬を追加'}</div>
     <label class="lbl" for="fv-name">名前</label><input id="fv-name" type="text" value="${esc(f ? f.name : '')}" autocomplete="off">
     <div class="lbl">種類</div><div class="seg" data-pick="fcat">${cats}</div>
-    <div id="fv-unit-box" class="${f && K.MED_CATS[f.cat].flow ? '' : 'hidden'}"><label class="lbl" for="fv-unit">流量の単位</label><input id="fv-unit" type="text" value="${esc(f ? f.unit : '')}" autocomplete="off" placeholder="例：γ、mg/h、µg/h、単位/h"></div>
+    <div id="fv-unit-box" class="stack ${f && K.MED_CATS[f.cat] && K.MED_CATS[f.cat].flow ? '' : 'hidden'}">
+      <div class="lbl">組成（薬の量／全量）</div>
+      <div class="conc-grid"><input id="fv-amt" type="text" inputmode="decimal" autocomplete="off" value="${esc(f && f.amount ? K.fmtNum(f.amount) : '')}" placeholder="薬の量" aria-label="薬の量"><select id="fv-amtu" aria-label="量の単位">${['mg', 'µg', 'U', '単位'].map((u) => `<option ${f && f.amountUnit === u ? 'selected' : ''}>${u}</option>`).join('')}</select><span class="muted">／</span><input id="fv-vol" type="text" inputmode="decimal" autocomplete="off" value="${esc(f && f.volume ? K.fmtNum(f.volume) : '')}" placeholder="全量" aria-label="全量"><span class="muted">mL</span></div>
+      <label class="lbl" for="fv-unit">表示の単位</label><select id="fv-unit">${['γ', 'mg/h', 'µg/h', 'U/h', '単位/h'].map((u) => `<option ${f && f.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
+      <label class="row-gap small"><input id="fv-perday" type="checkbox" ${f && f.perDay ? 'checked' : ''}> 1日量（/日）も出す（ヘパリンなど）</label>
+      <div class="warn-a small">組成を変えると、これから追加する薬に使われます（今使っている薬の計算は変わりません）。</div>
+    </div>
     <div class="err" id="fv-err"></div>
     <div class="grid2"><button class="btn3" data-act="sheetCancel">やめる</button><button class="btn" data-act="favOk">保存</button></div>
     ${f ? '<button class="danger" data-act="sheetChoose" data-v="__delete">よく使う薬から外す</button>' : ''}`);
   $('.seg[data-pick="fcat"]').addEventListener('picked', (e) => {
     const flow = !!K.MED_CATS[e.detail.value].flow;
     $('#fv-unit-box').classList.toggle('hidden', !flow);
-    if (flow && !$('#fv-unit').value) $('#fv-unit').value = K.MED_CATS[e.detail.value].unit;
+    if (flow && !(f && f.unit)) $('#fv-unit').value = K.MED_CATS[e.detail.value].unit;
   });
   return pr;
 }

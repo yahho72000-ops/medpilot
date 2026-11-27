@@ -59,6 +59,36 @@ function run(name, el, ev) {
     });
 }
 
+// PIN のキーなど：指が触れた瞬間に反応する（data-down）
+document.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest('[data-down]');
+  if (!el || el.disabled) return;
+  e.preventDefault();
+  run(el.dataset.down, el, e);
+});
+// ---- 左右スワイプ（患者ページの TODO｜詳細 の切り替え） ----
+// touchstart の受け付けは、iPhone で押したときの色（:active）を出すのにも使う
+let swipe = null;
+document.addEventListener('touchstart', (e) => {
+  swipe = null;
+  if (e.touches.length !== 1 || ui.sheetOpen()) return;
+  if (e.target.closest('input, textarea, select, .keypad, [data-noswipe]')) return;
+  const t = e.touches[0];
+  swipe = { x: t.clientX, y: t.clientY, at: Date.now() };
+}, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!swipe) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - swipe.x;
+  const dy = t.clientY - swipe.y;
+  const dt = Date.now() - swipe.at;
+  swipe = null;
+  // 横に 60px 以上、縦より十分に大きく、すばやく動かしたときだけ
+  if (dt > 700 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+  const fn = actionFor(dx < 0 ? 'swipeNext' : 'swipePrev');
+  if (fn) Promise.resolve().then(() => fn({}, null, e)).catch((err) => console.error(err));
+}, { passive: true });
+
 document.addEventListener('pointerdown', (e) => {
   state.lastActive = Date.now();
   const el = e.target.closest('[data-lp]');

@@ -31,6 +31,8 @@ html[data-font="m"] { font-size: 16px; }
 html[data-font="l"] { font-size: 18px; }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* 2回続けて押したときに「ダブルタップで拡大」と取られて押せないのを防ぐ */
+html, body, button, input, select, textarea, a { touch-action: manipulation; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
@@ -236,8 +238,8 @@ input:focus, textarea:focus { outline: 2px solid var(--sub); outline-offset: 0; 
 .dot { width: 14px; height: 14px; border-radius: 7px; border: 1.5px solid var(--sub); }
 .dot.on { background: var(--text); border-color: var(--text); }
 .keypad { display: grid; grid-template-columns: repeat(3, 76px); gap: 16px 26px; justify-content: center; margin-top: 8px; }
-.key { width: 76px; height: 76px; border-radius: 38px; border: none; background: var(--card2); font-size: 1.7rem; color: var(--text); }
-.key:active { background: var(--line2); }
+.key { width: 76px; height: 76px; border-radius: 38px; border: none; background: var(--card2); font-size: 1.7rem; color: var(--text); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+.key:active { background: var(--line2); transform: scale(.96); }
 
 /* シート */
 .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
@@ -256,6 +258,16 @@ input:focus, textarea:focus { outline: 2px solid var(--sub); outline-offset: 0; 
 .two-btn .btn, .two-btn .btn2 { box-shadow: 0 4px 18px var(--shadow); }
 .btn2.solid { background: var(--card); }
 
+/* 患者ページの 2 枚（TODO｜詳細） */
+.ptabs { position: sticky; top: env(safe-area-inset-top, 0); z-index: 4; }
+.ppage { display: flex; flex-direction: column; gap: 12px; }
+.ppage.from-right { animation: slideR .18s ease-out; }
+.ppage.from-left { animation: slideL .18s ease-out; }
+@keyframes slideR { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes slideL { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
+.mainprob { font-weight: 700; }
+.minihead { font-size: .95rem; }
+
 /* 薬 */
 .mdot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: 1px; }
 .abx-total { font-weight: 700; padding: 6px 0 2px; }
@@ -265,6 +277,16 @@ details.ended summary { padding: 6px 0; cursor: pointer; }
 .rate-unit { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 8px; }
 .nowrap { flex-wrap: nowrap; flex: 0 0 auto; }
 .timer { color: var(--a-tx); }
+.mdose { display: flex; flex-direction: column; align-items: flex-end !important; text-align: right; gap: 1px; }
+.mdose-main { font-weight: 700; color: var(--a-tx); }
+.conc-fixed { background: var(--card2); border-radius: 10px; padding: 8px 10px; font-size: .9rem; }
+.sheet .conc-fixed { background: var(--bg); }
+.conc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.conc-grid select { padding: 11px 22px 11px 8px; background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%; }
+.calc { font-size: .88rem; color: var(--a-tx); min-height: 1.2em; }
+.calc:empty { min-height: 0; }
+details.rev summary { color: var(--sub); font-size: .85rem; padding: 4px 0; cursor: pointer; }
+details.rev .row-gap { margin: 6px 0; }
 
 /* 培養 */
 .clist { gap: 0; padding-top: 4px; padding-bottom: 4px; }

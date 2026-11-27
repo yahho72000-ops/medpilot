@@ -3,29 +3,146 @@
 import { uuid, ymd, addDays, diffDays, md, norm } from './util.js';
 
 // ---- 薬 ----
-// flow: 流量を記録する（昇圧薬・鎮静薬）
+// flow: 流量（mL/h）を記録する（昇圧薬・鎮静薬・持続薬）
 export const MED_CATS = {
   abx: { label: '抗菌薬', color: '#1D9E75' },
   vaso: { label: '昇圧薬', color: '#D85A30', flow: true, unit: 'γ' },
   sed: { label: '鎮静薬', color: '#7F77DD', flow: true, unit: 'mg/h' },
+  drip: { label: '持続薬', color: '#378ADD', flow: true, unit: 'mg/h' },
   other: { label: 'その他', color: '#8E8E93' },
 };
 export const isFlow = (m) => !!(MED_CATS[m.cat] || {}).flow;
 
+// よく使う薬。流量の薬は組成（薬の量／全量 mL）と表示の単位を持つ（ユーザーの病院の組成）
+// [名前, 種類, 表示の単位, 薬の量, 量の単位, 全量 mL, 1日量も出す]
 const DEFAULT_FAV_MEDS = [
   ['CTRX', 'abx'], ['CEZ', 'abx'], ['ABPC/SBT', 'abx'], ['TAZ/PIPC', 'abx'],
   ['MEPM', 'abx'], ['CFPM', 'abx'], ['VCM', 'abx'], ['LVFX', 'abx'],
-  ['NAD', 'vaso', 'γ'], ['DOB', 'vaso', 'γ'], ['バソプレシン', 'vaso', '単位/h'],
-  ['プロポフォール', 'sed', 'mg/h'], ['ミダゾラム', 'sed', 'mg/h'], ['デクスメデトミジン', 'sed', 'µg/h'], ['フェンタニル', 'sed', 'µg/h'],
+  ['NAD', 'vaso', 'γ', 5, 'mg', 50],
+  ['DOB', 'vaso', 'γ', 150, 'mg', 50],
+  ['バソプレシン', 'vaso', '単位/h', 1, '単位', 1],
+  ['プロポフォール', 'sed', 'mg/h', 400, 'mg', 40],
+  ['ミダゾラム', 'sed', 'mg/h', 50, 'mg', 50],
+  ['デクスメデトミジン', 'sed', 'µg/h', 200, 'µg', 50],
+  ['フェンタニル', 'sed', 'µg/h', 0.5, 'mg', 10],
+  ['ニカルジピン', 'drip', 'mg/h', 40, 'mg', 40],
+  ['ヘパリン', 'drip', 'U/h', 10000, 'U', 50, true],
+  ['インスリン', 'drip', 'U/h', 50, 'U', 50],
 ];
+const favOf = ([name, cat, unit, amount, amountUnit, volume, perDay]) => {
+  const f = { name, cat, unit: unit || '' };
+  if (amount) Object.assign(f, { amount, amountUnit, volume });
+  if (perDay) f.perDay = true;
+  return f;
+};
 export function defaultFavMeds() {
-  return DEFAULT_FAV_MEDS.map(([name, cat, unit]) => ({ name, cat, unit: unit || '' }));
+  return DEFAULT_FAV_MEDS.map(favOf);
 }
 export const findFav = (favs, name) => (favs || []).find((f) => norm(f.name) === norm(name)) || null;
 
-export function newMed({ name, cat = 'other', start = ymd(), planDays = null, unit = '', rate = null, rateAt = null }) {
+// 0.3.0 で保存したよく使う薬に、組成と新しい持続薬を足す（1回だけ）
+export function upgradeFavMeds(favs) {
+  let changed = false;
+  for (const row of DEFAULT_FAV_MEDS) {
+    const d = favOf(row);
+    const f = findFav(favs, d.name);
+    if (!f) {
+      favs.push(d);
+      changed = true;
+    } else if (d.amount && !f.amount) {
+      Object.assign(f, { amount: d.amount, amountUnit: d.amountUnit, volume: d.volume, unit: d.unit });
+      if (d.perDay) f.perDay = true;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// ---- 流量（mL/h）→ γ・mg/h などへの計算 ----
+const baseOf = (u) => {
+  const t = String(u || '').normalize('NFKC').replace(/μ/g, 'µ');
+  if (t === 'γ' || /^(µg|ug|mcg)/i.test(t)) return 'µg';
+  if (/^mg/i.test(t)) return 'mg';
+  if (/^(U|単位|IU)/i.test(t)) return 'U';
+  return null;
+};
+
+// 1mL あたりの量（表示の単位にそろえる）。組成がなければ null
+export function concPerMl(c, unit) {
+  if (!c || !Number(c.amount) || !Number(c.volume)) return null;
+  const to = baseOf(unit);
+  const from = baseOf(c.amountUnit);
+  if (!to || !from) return null;
+  let a = Number(c.amount);
+  if (from === 'mg' && to === 'µg') a *= 1000;
+  else if (from === 'µg' && to === 'mg') a /= 1000;
+  else if (from !== to) return null;
+  return a / Number(c.volume);
+}
+export const isGamma = (m) => m.unit === 'γ';
+export const hasConc = (m) => concPerMl(m.conc, m.unit) !== null;
+
+// mL/h から量へ（γ は体重が必要。計算できなければ null）
+export function doseFromMl(m, ml, weight) {
+  const c = concPerMl(m.conc, m.unit);
+  if (c === null || ml === null || ml === undefined || ml === '') return null;
+  if (isGamma(m)) return Number(weight) > 0 ? (Number(ml) * c) / Number(weight) / 60 : null;
+  return Number(ml) * c;
+}
+// 量から mL/h へ（逆の計算）
+export function mlFromDose(m, dose, weight) {
+  const c = concPerMl(m.conc, m.unit);
+  if (!c || dose === null || dose === undefined || dose === '') return null;
+  if (isGamma(m)) return Number(weight) > 0 ? (Number(dose) * Number(weight) * 60) / c : null;
+  return Number(dose) / c;
+}
+
+const round = (v, d) => { const k = 10 ** d; return Math.round(Number(v) * k) / k; };
+// γ は小数第2位まで、それ以外は小数第1位まで
+export const fmtDose = (m, v) => String(round(v, isGamma(m) ? 2 : 1));
+export function doseText(m, v) {
+  if (v === null || v === undefined) return '';
+  const t = `${fmtDose(m, v)}${m.unit}`;
+  return m.perDay ? `${t}（${Math.round(Number(v) * 24)}${m.unit.replace('/h', '')}/日）` : t;
+}
+
+// 確かめるための計算式
+export function formulaText(m, ml, weight) {
+  const c = concPerMl(m.conc, m.unit);
+  if (c === null || ml === '' || ml === null || !Number.isFinite(Number(ml))) return '';
+  const base = isGamma(m) ? 'µg' : m.unit.replace('/h', '');
+  const head = `${fmtNum(ml)}mL/h × ${fmtNum(c)}${base}/mL`;
+  if (isGamma(m)) {
+    if (!(Number(weight) > 0)) return `${head} ÷ 体重 ÷ 60（体重を入れると γ が出ます）`;
+    return `${head} ÷ ${fmtNum(weight)}kg ÷ 60 ＝ ${fmtDose(m, doseFromMl(m, ml, weight))}γ`;
+  }
+  const v = doseFromMl(m, ml, weight);
+  return `${head} ＝ ${fmtDose(m, v)}${m.unit}${m.perDay ? `（× 24 ＝ ${Math.round(v * 24)}${m.unit.replace('/h', '')}/日）` : ''}`;
+}
+
+export const concText = (m) => {
+  if (!m.conc || !m.conc.amount) return '';
+  const c = concPerMl(m.conc, m.unit);
+  const base = isGamma(m) ? 'µg' : m.unit.replace('/h', '');
+  return `${fmtNum(m.conc.amount)}${m.conc.amountUnit}／${fmtNum(m.conc.volume)}mL${c !== null ? `（${fmtNum(c)}${base}/mL）` : ''}`;
+};
+
+// 記録 1 件の量（新しい記録は mL/h、0.3.0 の記録は量そのもの）
+export function rateDose(m, r, weight) {
+  if (!r) return null;
+  if (r.ml !== undefined) return doseFromMl(m, r.ml, weight);
+  return r.value;
+}
+const rateZero = (r) => (r.ml !== undefined ? Number(r.ml) === 0 : Number(r.value) === 0);
+
+export function newMed({ name, cat = 'other', start = ymd(), planDays = null, unit = '', conc = null, perDay = false, ml = null, rate = null, rateAt = null }) {
   const m = { id: uuid(), name, cat, start, planDays: planDays ? Number(planDays) : null, end: null, unit: unit || '', rates: [] };
-  if (isFlow(m) && rate !== null && rate !== '' && Number.isFinite(Number(rate))) m.rates.push({ at: rateAt || Date.now(), value: Number(rate) });
+  if (isFlow(m)) {
+    if (conc && conc.amount) m.conc = { amount: Number(conc.amount), amountUnit: conc.amountUnit, volume: Number(conc.volume) };
+    if (perDay) m.perDay = true;
+    if (ml !== null && ml !== '' && Number.isFinite(Number(ml))) m.rates.push({ at: rateAt || Date.now(), ml: Number(ml) });
+    else if (rate !== null && rate !== '' && Number.isFinite(Number(rate))) m.rates.push({ at: rateAt || Date.now(), value: Number(rate) });
+  }
   return m;
 }
 
@@ -52,14 +169,25 @@ export function curRate(m, at = Date.now()) {
   return r;
 }
 
-// 一覧などに出す短い説明
-export function medStatus(m, day = ymd()) {
+// 今の流量の説明（例：0.05γ と 3mL/h）
+export function flowNow(m, weight, at = Date.now()) {
+  const r = curRate(m, at);
+  if (!r) return { dose: '流量 未入力', ml: '' };
+  if (r.ml === undefined) return { dose: `${fmtNum(r.value)}${m.unit}`, ml: '' };
+  const v = doseFromMl(m, r.ml, weight);
+  const ml = `${fmtNum(r.ml)}mL/h`;
+  if (v === null) return { dose: ml, ml: hasConc(m) && isGamma(m) ? '体重を入れると γ が出ます' : '', needWeight: hasConc(m) && isGamma(m) };
+  return { dose: doseText(m, v), ml };
+}
+
+// 一覧などに出す短い説明（weight は γ の計算用）
+export function medStatus(m, day = ymd(), weight = null) {
   if (medEnded(m, day)) return { text: `${md(m.start)}〜${md(m.end)}（${medDay(m, day)}日間）`, tone: 'g' };
   if (day < m.start) return { text: `${md(m.start)}から`, tone: 'g' };
   const k = medDay(m, day);
   if (isFlow(m)) {
-    const r = curRate(m);
-    return { text: `${r ? `${fmtNum(r.value)}${m.unit}` : '流量 未入力'} ・ ${k}日目`, tone: 'a' };
+    const f = flowNow(m, weight);
+    return { text: `${f.dose}${f.ml && !f.needWeight ? `（${f.ml}）` : ''} ・ ${k}日目`, tone: 'a', flow: f, day: k };
   }
   if (m.planDays) return { text: `${k}/${m.planDays}日目`, tone: k > m.planDays ? 'r' : k === m.planDays ? 'r' : 'a' };
   return { text: `継続中 ${k}日目`, tone: 'a' };
@@ -83,9 +211,10 @@ export function endMed(m, date = ymd(), now = Date.now()) {
   m.end = date < m.start ? m.start : date;
   if (isFlow(m)) {
     const r = curRate(m, Infinity);
-    if (r && r.value !== 0) {
+    if (r && !rateZero(r)) {
       const endOfDay = new Date(`${m.end}T23:59:00`).getTime();
-      m.rates.push({ at: Math.max(r.at + 60000, Math.min(now, endOfDay)), value: 0 });
+      const at = Math.max(r.at + 60000, Math.min(now, endOfDay));
+      m.rates.push(r.ml !== undefined ? { at, ml: 0 } : { at, value: 0 });
     }
   }
 }
@@ -93,7 +222,7 @@ export function endMed(m, date = ymd(), now = Date.now()) {
 export function reopenMed(m) {
   m.end = null;
   const rs = m.rates || [];
-  if (rs.length && rs[rs.length - 1].value === 0) rs.pop();
+  if (rs.length && rateZero(rs[rs.length - 1])) rs.pop();
 }
 
 // 帰宅・退院などで過去に移すとき、続いている薬をその日で終える
