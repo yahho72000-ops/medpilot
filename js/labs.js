@@ -51,7 +51,7 @@ export function defaultLabItems() {
 export function labPrompt(items) {
   const names = (items && items.length ? [...items].sort((a, b) => a.order - b.order).map((it) => it.abbr) : DEFAULT_ITEMS.map((r) => r[0])).join(' ');
   return `この文のあとに貼る血液検査の結果を、決まった形に書き出してください。
-答えは、医師がスマホのカメラで画面の文字を読み取り、アプリに取り込みます。形が少しでも違うと正しく取り込めないので、下の決まりを必ず守ってください。あいさつや説明は書かないでください。
+答えは、医師が文字のままコピーして、アプリに取り込みます。形が少しでも違うと正しく取り込めないので、下の決まりを必ず守ってください。あいさつや説明は書かないでください。
 
 ■ 答えの形
 【MedPilot 検査】

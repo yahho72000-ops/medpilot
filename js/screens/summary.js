@@ -27,10 +27,13 @@ export const TEMPLATES = {
 export function hospitalSteps(kind, what) {
   const t = TEMPLATES[kind];
   return `${step(1, '病院の AI でテンプレートを使う', `<div>病院の AI でテンプレート「${esc(t.tag)}」を選び、その下に${esc(what)}の文章を貼って送ります。</div><button class="btn2" data-act="showTemplate" data-k="${kind}">テンプレートの文を見る・コピー</button>`)}
-    ${step(2, 'AI の答えを iPhone で読み取る', `<div>iPhone のカメラを PC の画面に向けて、右下の文字のマーク（テキスト認識表示）を押します。答えの部分（【${esc(t.tag)}】から【おわり】まで）を選んで「コピー」。</div>
-      <div class="muted small">PC の画面の文字を大きくしてから（Ctrl を押しながら ＋）読み取ると、小数点の読み落としが減ります。</div>
-      <div class="muted small">写真は撮らなくて大丈夫です。撮ったときは、貼ったあと写真を消してください。</div>
-      <div class="warn-a small">テンプレートの文やカルテの部分までは選ばないでください。</div>`)}`;
+    ${step(2, 'AI の答えを iPhone に持ってくる', `<div>答えの部分（【${esc(t.tag)}】から【おわり】まで）を、<b>文字のままコピー</b>して iPhone に持ってきます。写真の読み取りより間違いがなく、いちばん確実です。</div>
+      <div class="warn-a small">テンプレートの文やカルテの部分までは入れないでください。</div>
+      <div class="muted small">持ってくるのに使ったメールやチャットに残った文は、取り込んだあと消しておくと安心です。</div>
+      <details class="rev"><summary>文字で持ってこられないとき（カメラで読み取る）</summary>
+        <div class="small">iPhone のカメラを PC の画面に向けて、右下の文字のマーク（テキスト認識表示）を押し、答えの部分を選んで「コピー」。写真は撮らなくて大丈夫です。</div>
+        <div class="warn-a small">読み取りは小数点を落とすことがあります。PC の画面の文字を大きくしてから（Ctrl を押しながら ＋）読み取り、確認画面で数字を必ず見比べてください。</div>
+      </details>`)}`;
 }
 
 // 貼り足す（今の文の最後に足す）
@@ -65,7 +68,7 @@ export const summaryImportScreen = {
     return `${header('まとめカルテの読み込み', p ? p.code : '入院患者')}
       ${p ? '' : '<div class="card muted small">まとめカルテから、入院患者を新しく登録します。</div>'}
       ${hospitalSteps('summary', 'まとめカルテ')}
-      ${step(3, 'ここに貼る', `<div class="muted small">答えが長いときは、スクロールして何回かに分けて貼り足せます（重なっても大丈夫です）。</div>
+      ${step(3, 'ここに貼る', `<div class="muted small">答えが長いときは、何回かに分けて貼り足せます（重なっても大丈夫です）。</div>
         <textarea id="sm-text" class="mono" rows="10" placeholder="【MedPilot まとめ】&#10;【プロフィール】&#10;年齢：82&#10;…&#10;【おわり】">${esc(text)}</textarea>
         <div class="grid2"><button class="btn2" data-act="smPaste">クリップボードから貼り足す</button><button class="btn3" data-act="smClear">全部消す</button></div>
         <div id="sm-status" class="stack">${statusHtml(text)}</div>
